@@ -173,6 +173,7 @@ def _find_header_row(rows: Sequence[tuple[object, ...]]) -> int | None:
 
 def _drop_empty_rows(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
-        return frame.reset_index(drop=True)
+        return pd.DataFrame(frame.reset_index(drop=True))
     mask = frame.map(lambda v: v is not None and not (isinstance(v, str) and not v.strip()))
-    return frame[mask.any(axis=1)].reset_index(drop=True)
+    kept = frame.loc[mask.any(axis=1)]
+    return pd.DataFrame(kept.reset_index(drop=True))

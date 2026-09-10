@@ -113,7 +113,7 @@ class JobStore:
 
 def _parquet_safe(frame: pd.DataFrame) -> pd.DataFrame:
     """Coerce mixed-type object columns to strings so pyarrow can serialise them."""
-    out = frame.copy()
+    out = pd.DataFrame(frame.copy())
     out.columns = [f"c{i}" for i in range(len(out.columns))]
     for col in out.columns:
         series = out[col]
