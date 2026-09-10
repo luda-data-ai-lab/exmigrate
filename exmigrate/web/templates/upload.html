@@ -36,7 +36,12 @@
     btn.disabled = files.length === 0;
   };
   const add = (fl) => {
-    for (const f of fl) if (/\.xls[xm]$/i.test(f.name)) files.push(f);
+    const rejected = [];
+    for (const f of fl) {
+      if (/\.xls[xm]$/i.test(f.name)) files.push(f); else rejected.push(f.name);
+    }
+    err.classList.toggle("d-none", rejected.length === 0);
+    if (rejected.length) err.textContent = `Unsupported file type (only .xlsx/.xlsm): ${rejected.join(", ")}`;
     render();
   };
   ["dragenter", "dragover"].forEach(ev => zone.addEventListener(ev, e => {

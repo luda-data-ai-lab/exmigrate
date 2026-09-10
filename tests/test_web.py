@@ -18,10 +18,12 @@ def _upload(client: FlaskClient, workbook: Path) -> str:
     return job_id
 
 
-def test_pages_render(client: FlaskClient) -> None:
+def test_pages_render(client: FlaskClient, clean_workbook: Path) -> None:
     assert client.get("/").status_code == 200
+    job_id = _upload(client, clean_workbook)
     for page in ("review", "target", "report"):
-        assert client.get(f"/jobs/abc/{page}").status_code == 200
+        assert client.get(f"/jobs/{job_id}/{page}").status_code == 200
+        assert client.get(f"/jobs/nope/{page}").status_code == 404
 
 
 def test_upload_rejects_empty(client: FlaskClient) -> None:

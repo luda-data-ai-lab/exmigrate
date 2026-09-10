@@ -37,7 +37,10 @@
   const pg = document.getElementById("t-postgres");
   const pgOpts = document.getElementById("pg-options");
   const err = document.getElementById("error");
-  pg.addEventListener("change", () => pgOpts.classList.toggle("d-none", !pg.checked));
+  const syncPg = () => pgOpts.classList.toggle("d-none", !pg.checked);
+  pg.addEventListener("change", syncPg);
+  window.addEventListener("pageshow", syncPg);
+  syncPg();
 
   document.getElementById("target-form").addEventListener("submit", async (e) => {
     e.preventDefault();

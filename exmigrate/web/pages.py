@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-from flask import Blueprint, render_template
+from typing import cast
+
+from flask import Blueprint, abort, current_app, render_template
+
+from exmigrate.web.jobs import JobStore
 
 pages_bp = Blueprint("pages", __name__)
+
+
+def _require_job(job_id: str) -> None:
+    store = cast(JobStore, current_app.extensions["job_store"])
+    if not store.exists(job_id):
+        abort(404, description="job not found")
 
 
 @pages_bp.get("/")
@@ -16,16 +26,19 @@ def upload_page() -> str:
 @pages_bp.get("/jobs/<job_id>/review")
 def review_page(job_id: str) -> str:
     """Editable schema review."""
+    _require_job(job_id)
     return render_template("review.html", job_id=job_id)
 
 
 @pages_bp.get("/jobs/<job_id>/target")
 def target_page(job_id: str) -> str:
     """Target selection and migration trigger."""
+    _require_job(job_id)
     return render_template("target.html", job_id=job_id)
 
 
 @pages_bp.get("/jobs/<job_id>/report")
 def report_page(job_id: str) -> str:
     """Migration report and artifact downloads."""
+    _require_job(job_id)
     return render_template("report.html", job_id=job_id)
