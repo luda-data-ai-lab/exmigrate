@@ -9,7 +9,7 @@ description = "Migrate Excel workbooks into relational databases."
 requires-python = ">=3.10"
 dependencies = [
     "flask>=3.0",
-    "pandas>=2.0",
+    "pandas>=2.0,<3",
     "openpyxl>=3.1",
     "sqlalchemy>=2.0",
     "psycopg[binary]>=3.1",
@@ -22,7 +22,7 @@ dev = [
     "ruff",
     "mypy",
     "pytest",
-    "pandas-stubs",
+    "pandas-stubs>=2.0,<3",
     "types-openpyxl",
 ]
 
