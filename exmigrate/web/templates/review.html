@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="h3 mb-3">2. Review schema</h1>
+<p class="text-muted">Edit table and column names, adjust types, and optionally mark a primary key.</p>
+<div id="issues"></div>
+<div id="tables"></div>
+<div class="d-flex gap-2 mt-3">
+  <button id="save-btn" class="btn btn-outline-secondary">Save</button>
+  <button id="next-btn" class="btn btn-primary">Save &amp; choose target</button>
+</div>
+<div id="error" class="alert alert-danger mt-3 d-none"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const jobId = {{ job_id | tojson }};
+  const TYPES = ["integer", "float", "boolean", "date", "datetime", "text"];
+  const container = document.getElementById("tables");
+  const err = document.getElementById("error");
+  let ir = null;
+
+  const renderIssues = (issues) => {
+    const box = document.getElementById("issues");
+    box.innerHTML = "";
+    if (!issues.length) return;
+    const ul = document.createElement("ul");
+    ul.className = "alert alert-warning small mb-3";
+    issues.forEach(i => {
+      const li = document.createElement("li");
+      li.textContent = `[${i.severity}] ${i.message}`;
+      ul.appendChild(li);
+    });
+    box.appendChild(ul);
+  };
+
+  const render = () => {
+    container.innerHTML = "";
+    ir.tables.forEach((t, ti) => {
+      const card = document.createElement("div");
+      card.className = "card mb-3";
+      card.innerHTML = `
+        <div class="card-header d-flex align-items-center gap-3">
+          <label class="mb-0 fw-semibold">Table</label>
+          <input class="form-control form-control-sm w-auto" data-table="${ti}" value="">
+          <span class="text-muted small">from ${ExM.esc(t.source_file)} / ${ExM.esc(t.source_sheet)} · ${t.row_count} rows</span>
+        </div>
+        <div class="card-body p-0">
+          <table class="table table-sm mb-0 align-middle">
+            <thead><tr><th>Column</th><th>Source header</th><th>Type</th><th>Nullable</th><th>Null %</th><th>PK</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>`;
+      card.querySelector("input[data-table]").value = t.name;
+      const tbody = card.querySelector("tbody");
+      t.columns.forEach((c, ci) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><input class="form-control form-control-sm" data-col="${ti}:${ci}" data-field="name"></td>
+          <td class="text-muted small"></td>
+          <td><select class="form-select form-select-sm" data-col="${ti}:${ci}" data-field="type"></select></td>
+          <td class="text-center"><input type="checkbox" class="form-check-input" data-col="${ti}:${ci}" data-field="nullable"></td>
+          <td class="small"></td>
+          <td class="text-center"><input type="checkbox" class="form-check-input" data-col="${ti}:${ci}" data-field="pk"></td>`;
+        tr.querySelector('[data-field="name"]').value = c.name;
+        tr.children[1].textContent = c.source_name || "(blank)";
+        const sel = tr.querySelector("select");
+        TYPES.forEach(ty => {
+          const o = document.createElement("option");
+          o.value = ty; o.textContent = ty; o.selected = ty === c.type;
+          sel.appendChild(o);
+        });
+        tr.querySelector('[data-field="nullable"]').checked = c.nullable;
+        tr.children[4].textContent = (c.null_ratio * 100).toFixed(1);
+        tr.querySelector('[data-field="pk"]').checked = c.pk;
+        tbody.appendChild(tr);
+      });
+      container.appendChild(card);
+    });
+  };
+
+  const collect = () => {
+    container.querySelectorAll("input[data-table]").forEach(el => {
+      ir.tables[+el.dataset.table].name = el.value.trim();
+    });
+    container.querySelectorAll("[data-col]").forEach(el => {
+      const [ti, ci] = el.dataset.col.split(":").map(Number);
+      const col = ir.tables[ti].columns[ci];
+      const f = el.dataset.field;
+      if (f === "name") col.name = el.value.trim();
+      else if (f === "type") col.type = el.value;
+      else if (f === "nullable") col.nullable = el.checked;
+      else if (f === "pk") col.pk = el.checked;
+    });
+    return ir;
+  };
+
+  const save = async () => {
+    err.classList.add("d-none");
+    const res = await fetch(`/api/jobs/${jobId}/schema`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(collect()),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    ir = body;
+    render();
+  };
+
+  document.getElementById("save-btn").addEventListener("click", () =>
+    save().catch(e => ExM.showError(err, e)));
+  document.getElementById("next-btn").addEventListener("click", () =>
+    save().then(() => { window.location.href = `/jobs/${jobId}/target`; })
+      .catch(e => ExM.showError(err, e)));
+
+  Promise.all([
+    fetch(`/api/jobs/${jobId}/schema`).then(r => r.json()),
+    fetch(`/api/jobs/${jobId}/status`).then(r => r.json()),
+  ]).then(([schema, status]) => {
+    ir = schema; render(); renderIssues(status.issues || []);
+  }).catch(e => ExM.showError(err, e));
+})();
+</script>
+{% endblock %}
