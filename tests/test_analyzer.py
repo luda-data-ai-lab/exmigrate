@@ -5,13 +5,14 @@ from pathlib import Path
 from openpyxl import Workbook
 
 from exmigrate.analyzer import analyze, analyze_with_data, bind_data
+from exmigrate.analyzer.formulas import SheetRef, _lookup_edge, _split_args
 from exmigrate.analyzer.naming import dedupe, to_identifier
 from exmigrate.contracts.ir import ColumnType
 
 
 def test_clean_fixture_schema(clean_workbook: Path) -> None:
     ir, issues = analyze([clean_workbook])
-    assert issues == []
+    assert {i.code for i in issues} == {"formula_cache_empty"}
     assert [t.name for t in ir.tables] == ["customers", "orders", "order_items"]
 
     customers = ir.table("customers")
@@ -35,9 +36,74 @@ def test_clean_fixture_schema(clean_workbook: Path) -> None:
     note = orders.column("note")
     assert note.nullable is True and note.null_ratio > 0
 
-    for table in ir.tables:
+
+def test_values_only_analysis_has_no_keys(clean_workbook: Path) -> None:
+    result = analyze_with_data([clean_workbook], infer_keys=False)
+    assert result.issues == []
+    for table in result.ir.tables:
         for col in table.columns:
             assert col.pk is False and col.fk is None and col.derived is False
+
+
+def test_clean_fixture_keys_and_derived(clean_workbook: Path) -> None:
+    ir, _ = analyze([clean_workbook])
+    pks = {t.name: [c.name for c in t.columns if c.pk] for t in ir.tables}
+    assert pks == {
+        "customers": ["customer_id"],
+        "orders": ["order_id"],
+        "order_items": ["item_id"],
+    }
+    fks = {
+        (t.name, c.name): (c.fk.table, c.fk.column, c.fk.confidence)
+        for t in ir.tables
+        for c in t.columns
+        if c.fk is not None
+    }
+    assert fks == {
+        ("orders", "customer_id"): ("customers", "customer_id", 0.98),
+        ("order_items", "order_id"): ("orders", "order_id", 0.98),
+    }
+    derived = {(t.name, c.name) for t in ir.tables for c in t.columns if c.derived}
+    assert derived == {
+        ("orders", "customer_name"),
+        ("order_items", "line_total"),
+        ("order_items", "order_status"),
+    }
+
+
+def test_fk_from_values_and_name_without_formulas(tmp_path: Path) -> None:
+    wb = Workbook()
+    wb.remove(wb.worksheets[0])
+    ws = wb.create_sheet("Region")
+    ws.append(["Region Code", "Label"])
+    for code in ("KR", "JP", "US"):
+        ws.append([code, f"label {code}"])
+    ws = wb.create_sheet("Store")
+    ws.append(["Store No", "Region Code", "Size"])
+    for i, code in enumerate(["KR", "KR", "JP", "US", "JP", "KR"]):
+        ws.append([i + 1, code, i % 3])
+    path = tmp_path / "regions.xlsx"
+    wb.save(path)
+
+    ir, _ = analyze([path])
+    assert ir.table("region").column("region_code").pk is True
+    assert ir.table("store").column("store_no").pk is True
+    fk = ir.table("store").column("region_code").fk
+    assert fk is not None and (fk.table, fk.confidence) == ("region", 0.9)
+    assert ir.table("store").column("size").fk is None
+
+
+def test_formula_helpers() -> None:
+    assert _split_args("VLOOKUP(B2,'Order Items'!$A$2:$B$9,2,FALSE)", 8) == [
+        "B2",
+        "'Order Items'!$A$2:$B$9",
+        "2",
+        "FALSE",
+    ]
+    edge = _lookup_edge("VLOOKUP", ["B2", "'Order Items'!$A$2:$B$9", "2", "FALSE"], "Orders")
+    assert edge is not None
+    assert edge.lookup_column == 1 and edge.target == SheetRef("Order Items", 0)
+    assert _lookup_edge("VLOOKUP", ["B2", "$A$2:$B$9", "2"], "Orders") is None
 
 
 def test_ir_round_trips_json(clean_workbook: Path) -> None:

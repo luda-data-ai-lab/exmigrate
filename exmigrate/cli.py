@@ -1,4 +1,4 @@
-"""Command-line interface: ``exmigrate migrate <files...> --target sqlite|postgres``."""
+"""Command-line interface: ``exmigrate analyze|erd|migrate <files...>``."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from pathlib import Path
 
 from exmigrate.analyzer import analyze_with_data
 from exmigrate.contracts.adapter import IssueSeverity
+from exmigrate.erd import to_mermaid
 from exmigrate.service import TARGETS, run_migration
 
 
@@ -20,6 +21,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     analyze_p = sub.add_parser("analyze", help="print the Schema IR for workbooks")
     analyze_p.add_argument("files", nargs="+", type=Path)
+
+    erd_p = sub.add_parser("erd", help="print a Mermaid ER diagram for workbooks")
+    erd_p.add_argument("files", nargs="+", type=Path)
 
     migrate_p = sub.add_parser("migrate", help="analyze and migrate workbooks")
     migrate_p.add_argument("files", nargs="+", type=Path)
@@ -42,6 +46,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "analyze":
         print(result.ir.model_dump_json(indent=2))
+        return 0
+    if args.command == "erd":
+        print(to_mermaid(result.ir), end="")
         return 0
 
     if not result.ir.tables:

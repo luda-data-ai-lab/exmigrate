@@ -7,9 +7,102 @@ import psycopg
 import pytest
 
 from exmigrate.adapters import PostgresAdapter, SQLiteAdapter
+from exmigrate.adapters.sql_common import plan_schema
 from exmigrate.analyzer import analyze_with_data
 from exmigrate.contracts.adapter import Adapter, IssueSeverity
-from exmigrate.contracts.ir import ColumnIR, ColumnType, SchemaIR, TableIR
+from exmigrate.contracts.ir import ColumnIR, ColumnType, ForeignKey, SchemaIR, TableIR
+
+
+def _table(name: str, *cols: ColumnIR) -> TableIR:
+    return TableIR(
+        name=name, source_file="x.xlsx", source_sheet=name, row_count=0, columns=list(cols)
+    )
+
+
+def _cyclic_ir() -> SchemaIR:
+    """employees.dept_id -> departments, departments.manager_id -> employees, self-ref boss_id."""
+    return SchemaIR(
+        version=1,
+        tables=[
+            _table(
+                "employees",
+                ColumnIR(name="id", source_name="id", type=ColumnType.INTEGER, pk=True),
+                ColumnIR(
+                    name="dept_id",
+                    source_name="dept_id",
+                    type=ColumnType.INTEGER,
+                    fk=ForeignKey(table="departments", column="id"),
+                ),
+                ColumnIR(
+                    name="boss_id",
+                    source_name="boss_id",
+                    type=ColumnType.INTEGER,
+                    fk=ForeignKey(table="employees", column="id"),
+                ),
+                ColumnIR(
+                    name="ghost",
+                    source_name="ghost",
+                    type=ColumnType.TEXT,
+                    fk=ForeignKey(table="nowhere", column="id"),
+                ),
+            ),
+            _table(
+                "departments",
+                ColumnIR(name="id", source_name="id", type=ColumnType.INTEGER, pk=True),
+                ColumnIR(
+                    name="manager_id",
+                    source_name="manager_id",
+                    type=ColumnType.INTEGER,
+                    fk=ForeignKey(table="employees", column="id"),
+                ),
+            ),
+        ],
+    )
+
+
+def test_plan_schema_orders_parents_first_and_defers_cycles() -> None:
+    plan = plan_schema(_cyclic_ir())
+    assert plan.order == ["departments", "employees"]
+    assert {(e.table, e.column) for e in plan.deferred} == {
+        ("employees", "boss_id"),
+        ("departments", "manager_id"),
+    }
+    assert [(e.table, e.column) for e in plan.inline_edges()] == [("employees", "dept_id")]
+    assert {i.code for i in plan.issues} == {"fk_skipped", "fk_cycle"}
+
+
+def test_postgres_dump_re_adds_deferred_constraints(tmp_path: Path) -> None:
+    adapter = PostgresAdapter(mode="dump", dump_path=tmp_path / "cyc.sql")
+    report = adapter.migrate(_cyclic_ir(), {})
+    assert report.ok
+    sql = (tmp_path / "cyc.sql").read_text()
+    assert sql.index("CREATE TABLE departments") < sql.index("CREATE TABLE employees")
+    assert "CONSTRAINT fk_employees_dept_id FOREIGN KEY(dept_id) REFERENCES departments (id)" in sql
+    assert "ALTER TABLE employees ADD CONSTRAINT fk_employees_boss_id" in sql
+    assert "ALTER TABLE departments ADD CONSTRAINT fk_departments_manager_id" in sql
+    assert sql.rindex("ALTER TABLE") < sql.rindex("COMMIT;")
+
+
+def test_sqlite_emits_foreign_keys_and_loads_in_order(clean_workbook: Path, tmp_path: Path) -> None:
+    result = analyze_with_data([clean_workbook])
+    result.ir.table("orders").name = "sales"
+    for table in result.ir.tables:
+        for col in table.columns:
+            if col.fk is not None and col.fk.table == "orders":
+                col.fk = ForeignKey(table="sales", column=col.fk.column, confidence=1.0)
+    adapter = SQLiteAdapter(tmp_path / "fk.db")
+    plan = adapter.plan(result.ir)
+    assert [t.name for t in plan.tables] == ["customers", "sales", "order_items"]
+    assert "FOREIGN KEY(customer_id) REFERENCES customers (customer_id)" in plan.tables[1].ddl
+    report = adapter.migrate(result.ir, result.table_data())
+    assert report.ok and not report.issues
+    conn = sqlite3.connect(tmp_path / "fk.db")
+    try:
+        fks = conn.execute("PRAGMA foreign_key_list(order_items)").fetchall()
+        assert [(row[2], row[3], row[4]) for row in fks] == [("sales", "order_id", "order_id")]
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        conn.close()
 
 
 def test_adapters_satisfy_protocol(tmp_path: Path) -> None:

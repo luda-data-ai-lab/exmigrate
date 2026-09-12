@@ -1,5 +1,9 @@
 """Generate the clean 3-table fixture workbook (customer / order / order_item).
 
+Orders and Order Items carry same-file VLOOKUP/XLOOKUP and arithmetic columns
+so the formula pass has something to find. openpyxl does not compute formula
+results, so those columns have no cached values until Excel saves the file.
+
 Run ``python -m fixtures.clean_three_table out.xlsx`` or import ``generate``.
 """
 
@@ -39,9 +43,10 @@ def generate(path: str | Path, *, seed: int = 42) -> Path:
         )
 
     ws = wb.create_sheet("Orders")
-    ws.append(["Order ID", "Customer ID", "Ordered At", "Status", "Note"])
+    ws.append(["Order ID", "Customer ID", "Ordered At", "Status", "Note", "Customer Name"])
     statuses = ["new", "paid", "shipped", "cancelled"]
     for i in range(1, ORDER_ROWS + 1):
+        row = i + 1
         ws.append(
             [
                 1000 + i,
@@ -49,12 +54,14 @@ def generate(path: str | Path, *, seed: int = 42) -> Path:
                 dt.datetime(2024, 1, 1, 9, 0) + dt.timedelta(hours=rng.randint(0, 5000)),
                 rng.choice(statuses),
                 None if rng.random() < 0.7 else f"note {i}",
+                f"=VLOOKUP(B{row},Customers!$A$2:$F${CUSTOMER_ROWS + 1},2,FALSE)",
             ]
         )
 
     ws = wb.create_sheet("Order Items")
-    ws.append(["Item ID", "Order ID", "SKU", "Qty", "Unit Price"])
+    ws.append(["Item ID", "Order ID", "SKU", "Qty", "Unit Price", "Line Total", "Order Status"])
     for i in range(1, ITEM_ROWS + 1):
+        row = i + 1
         ws.append(
             [
                 i,
@@ -62,6 +69,8 @@ def generate(path: str | Path, *, seed: int = 42) -> Path:
                 f"SKU-{rng.randint(100, 999)}",
                 rng.randint(1, 10),
                 round(rng.uniform(1, 200), 2),
+                f"=D{row}*E{row}",
+                f"=XLOOKUP(B{row},Orders!$A$2:$A${ORDER_ROWS + 1},Orders!$D$2:$D${ORDER_ROWS + 1})",
             ]
         )
 

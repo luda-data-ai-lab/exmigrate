@@ -1,9 +1,22 @@
 {% extends "base.html" %}
 {% block content %}
 <h1 class="h3 mb-3">2. Review schema</h1>
-<p class="text-muted">Edit table and column names, adjust types, and optionally mark a primary key.</p>
+<p class="text-muted">Edit names and types, confirm the inferred primary/foreign keys, then check the ERD.</p>
 <div id="issues"></div>
-<div id="tables"></div>
+<ul class="nav nav-tabs mb-3" role="tablist">
+  <li class="nav-item"><button class="nav-link active" id="tab-tables" data-bs-toggle="tab" data-bs-target="#pane-tables" type="button" role="tab">Tables</button></li>
+  <li class="nav-item"><button class="nav-link" id="tab-erd" data-bs-toggle="tab" data-bs-target="#pane-erd" type="button" role="tab">ERD</button></li>
+</ul>
+<div class="tab-content">
+  <div class="tab-pane fade show active" id="pane-tables" role="tabpanel">
+    <div id="tables"></div>
+  </div>
+  <div class="tab-pane fade" id="pane-erd" role="tabpanel">
+    <p class="text-muted small">Dashed edges are tentative (confidence &lt; 0.9). The diagram reflects the saved schema.</p>
+    <div id="erd" class="border rounded p-3 bg-white overflow-auto"></div>
+    <details class="mt-2"><summary class="small text-muted">Mermaid source</summary><pre id="erd-src" class="small mb-0"></pre></details>
+  </div>
+</div>
 <div class="d-flex gap-2 mt-3">
   <button id="save-btn" class="btn btn-outline-secondary">Save</button>
   <button id="next-btn" class="btn btn-primary">Save &amp; choose target</button>
@@ -11,6 +24,14 @@
 <div id="error" class="alert alert-danger mt-3 d-none"></div>
 {% endblock %}
 {% block scripts %}
+<script type="module">
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+mermaid.initialize({ startOnLoad: false, securityLevel: "strict" });
+window.ExM.renderMermaid = async (el, src) => {
+  const { svg } = await mermaid.render(`erd-${Date.now()}`, src);
+  el.innerHTML = svg;
+};
+</script>
 <script>
 (() => {
   const jobId = {{ job_id | tojson }};
@@ -33,6 +54,23 @@
     box.appendChild(ul);
   };
 
+  // FK targets are tracked by position so renaming a table/column keeps the link.
+  const fkTargets = (ti) => {
+    const out = [];
+    ir.tables.forEach((t, tj) => {
+      if (tj === ti) return;
+      t.columns.forEach((c, cj) => { if (c.pk) out.push({ ti: tj, ci: cj, label: `${t.name}.${c.name}` }); });
+    });
+    return out;
+  };
+  const fkPosition = (fk) => {
+    if (!fk) return "";
+    const tj = ir.tables.findIndex(t => t.name === fk.table);
+    if (tj < 0) return "";
+    const cj = ir.tables[tj].columns.findIndex(c => c.name === fk.column);
+    return cj < 0 ? "" : `${tj}:${cj}`;
+  };
+
   const render = () => {
     container.innerHTML = "";
     ir.tables.forEach((t, ti) => {
@@ -46,12 +84,13 @@
         </div>
         <div class="card-body p-0">
           <table class="table table-sm mb-0 align-middle">
-            <thead><tr><th>Column</th><th>Source header</th><th>Type</th><th>Nullable</th><th>Null %</th><th>PK</th></tr></thead>
+            <thead><tr><th>Column</th><th>Source header</th><th>Type</th><th>Nullable</th><th>Null %</th><th>PK</th><th>FK →</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>`;
       card.querySelector("input[data-table]").value = t.name;
       const tbody = card.querySelector("tbody");
+      const targets = fkTargets(ti);
       t.columns.forEach((c, ci) => {
         const tr = document.createElement("tr");
         tr.innerHTML = `
@@ -60,10 +99,18 @@
           <td><select class="form-select form-select-sm" data-col="${ti}:${ci}" data-field="type"></select></td>
           <td class="text-center"><input type="checkbox" class="form-check-input" data-col="${ti}:${ci}" data-field="nullable"></td>
           <td class="small"></td>
-          <td class="text-center"><input type="checkbox" class="form-check-input" data-col="${ti}:${ci}" data-field="pk"></td>`;
+          <td class="text-center"><input type="checkbox" class="form-check-input" data-col="${ti}:${ci}" data-field="pk"></td>
+          <td><div class="d-flex align-items-center gap-2"><select class="form-select form-select-sm" data-col="${ti}:${ci}" data-field="fk"></select><span class="small text-muted text-nowrap"></span></div></td>`;
         tr.querySelector('[data-field="name"]').value = c.name;
         tr.children[1].textContent = c.source_name || "(blank)";
-        const sel = tr.querySelector("select");
+        if (c.derived) {
+          const badge = document.createElement("span");
+          badge.className = "badge text-bg-info ms-1";
+          badge.title = "populated by formulas";
+          badge.textContent = "derived";
+          tr.children[1].appendChild(badge);
+        }
+        const sel = tr.querySelector('[data-field="type"]');
         TYPES.forEach(ty => {
           const o = document.createElement("option");
           o.value = ty; o.textContent = ty; o.selected = ty === c.type;
@@ -72,6 +119,25 @@
         tr.querySelector('[data-field="nullable"]').checked = c.nullable;
         tr.children[4].textContent = (c.null_ratio * 100).toFixed(1);
         tr.querySelector('[data-field="pk"]').checked = c.pk;
+        const fkSel = tr.querySelector('[data-field="fk"]');
+        const none = document.createElement("option");
+        none.value = ""; none.textContent = "—";
+        fkSel.appendChild(none);
+        const current = fkPosition(c.fk);
+        fkSel.dataset.current = current;
+        targets.forEach(tg => {
+          const o = document.createElement("option");
+          o.value = `${tg.ti}:${tg.ci}`; o.textContent = tg.label; o.selected = o.value === current;
+          fkSel.appendChild(o);
+        });
+        if (c.fk && !current) {
+          const o = document.createElement("option");
+          o.value = "__stale__"; o.textContent = `${c.fk.table}.${c.fk.column} (missing)`; o.selected = true;
+          fkSel.appendChild(o);
+        }
+        const conf = tr.children[6].querySelector("span");
+        if (c.fk) conf.textContent = c.fk.confidence < 1 ? `conf ${c.fk.confidence.toFixed(2)}` : "manual";
+        fkSel.addEventListener("change", () => { conf.textContent = fkSel.value ? "manual" : ""; });
         tbody.appendChild(tr);
       });
       container.appendChild(card);
@@ -82,6 +148,7 @@
     container.querySelectorAll("input[data-table]").forEach(el => {
       ir.tables[+el.dataset.table].name = el.value.trim();
     });
+    const fkChoices = [];
     container.querySelectorAll("[data-col]").forEach(el => {
       const [ti, ci] = el.dataset.col.split(":").map(Number);
       const col = ir.tables[ti].columns[ci];
@@ -90,6 +157,14 @@
       else if (f === "type") col.type = el.value;
       else if (f === "nullable") col.nullable = el.checked;
       else if (f === "pk") col.pk = el.checked;
+      else if (f === "fk") fkChoices.push({ col, value: el.value, same: el.value === el.dataset.current });
+    });
+    fkChoices.forEach(({ col, value, same }) => {
+      if (value === "__stale__") return;
+      if (!value) { col.fk = null; return; }
+      const [tj, cj] = value.split(":").map(Number);
+      const target = ir.tables[tj].columns[cj];
+      col.fk = { table: ir.tables[tj].name, column: target.name, confidence: same ? col.fk.confidence : 1 };
     });
     return ir;
   };
@@ -106,11 +181,24 @@
     render();
   };
 
+  const showErd = async () => {
+    await save();
+    const res = await fetch(`/api/jobs/${jobId}/erd`);
+    if (!res.ok) throw new Error(`ERD request failed (${res.status})`);
+    const src = await res.text();
+    document.getElementById("erd-src").textContent = src;
+    const el = document.getElementById("erd");
+    if (!ExM.renderMermaid) { el.textContent = src; return; }
+    await ExM.renderMermaid(el, src);
+  };
+
   document.getElementById("save-btn").addEventListener("click", () =>
     save().catch(e => ExM.showError(err, e)));
   document.getElementById("next-btn").addEventListener("click", () =>
     save().then(() => { window.location.href = `/jobs/${jobId}/target`; })
       .catch(e => ExM.showError(err, e)));
+  document.getElementById("tab-erd").addEventListener("shown.bs.tab", () =>
+    showErd().catch(e => ExM.showError(err, e)));
 
   Promise.all([
     fetch(`/api/jobs/${jobId}/schema`).then(r => r.json()),

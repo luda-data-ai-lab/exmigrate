@@ -13,7 +13,14 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import base as pg_base
 from sqlalchemy.engine import Dialect
 
-from exmigrate.adapters.sql_common import build_metadata, chunked, ddl_for, iter_rows
+from exmigrate.adapters.sql_common import (
+    add_fk_ddl,
+    build_metadata,
+    chunked,
+    ddl_for,
+    iter_rows,
+    plan_schema,
+)
 from exmigrate.contracts.adapter import (
     Issue,
     IssueSeverity,
@@ -52,8 +59,8 @@ class PostgresAdapter:
         self.dump_path = Path(dump_path) if dump_path is not None else None
 
     def validate(self, ir: SchemaIR) -> list[Issue]:
-        """Flag identifiers longer than 63 chars and reserved words."""
-        issues: list[Issue] = []
+        """Flag identifiers longer than 63 chars, reserved words and unenforceable FKs."""
+        issues: list[Issue] = list(plan_schema(ir).issues)
         for table in ir.tables:
             issues.extend(self._check_identifier(table.name, table.name, None))
             for col in table.columns:
@@ -87,18 +94,28 @@ class PostgresAdapter:
         return issues
 
     def plan(self, ir: SchemaIR) -> MigrationPlan:
-        """Render DDL and choose COPY vs. batched INSERT per table."""
-        metadata = build_metadata(ir)
+        """Render DDL in dependency order and choose COPY vs. batched INSERT per table."""
+        schema = plan_schema(ir)
+        metadata = build_metadata(ir, schema.inline_edges())
         dialect = _pg_dialect()
         tables = [
             PlannedTable(
-                name=t.name,
-                ddl=ddl_for(metadata.tables[t.name], dialect),
-                row_count=t.row_count,
-                load_strategy=_strategy(t),
+                name=name,
+                ddl=ddl_for(metadata.tables[name], dialect),
+                row_count=ir.table(name).row_count,
+                load_strategy=_strategy(ir.table(name)),
             )
-            for t in ir.tables
+            for name in schema.order
         ]
+        for edge in schema.deferred:
+            tables.append(
+                PlannedTable(
+                    name=f"{edge.table} (constraint)",
+                    ddl=add_fk_ddl(metadata, edge, dialect),
+                    row_count=0,
+                    load_strategy="ALTER TABLE after load",
+                )
+            )
         return MigrationPlan(target=self.name, tables=tables, issues=self.validate(ir))
 
     def migrate(self, ir: SchemaIR, data: TableData) -> MigrationReport:
@@ -113,13 +130,17 @@ class PostgresAdapter:
     def _migrate_live(self, ir: SchemaIR, data: TableData, issues: list[Issue]) -> MigrationReport:
         assert self.dsn is not None
         engine = sa.create_engine(_sqlalchemy_url(self.dsn))
-        metadata = build_metadata(ir)
+        schema = plan_schema(ir)
+        metadata = build_metadata(ir, schema.inline_edges())
+        dialect = _pg_dialect()
         reports: list[TableReport] = []
         try:
             with engine.begin() as conn:
-                metadata.drop_all(conn)
+                for name in reversed(schema.order):
+                    conn.execute(sa.text(f"DROP TABLE IF EXISTS {_quote(name)} CASCADE"))
                 metadata.create_all(conn)
-            for table in ir.tables:
+            for name in schema.order:
+                table = ir.table(name)
                 frame = data.get(table.name)
                 if frame is None or not len(frame):
                     reports.append(TableReport(name=table.name, rows_loaded=0))
@@ -139,8 +160,24 @@ class PostgresAdapter:
                     reports.append(
                         TableReport(name=table.name, rows_loaded=0, ok=False, error=str(exc))
                     )
+            for edge in schema.deferred:
+                statement = add_fk_ddl(metadata, edge, dialect)
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(sa.text(statement))
+                except Exception as exc:  # noqa: BLE001 - reported per constraint
+                    issues.append(
+                        Issue(
+                            severity=IssueSeverity.WARNING,
+                            code="fk_not_created",
+                            message=f"'{edge.table}.{edge.column}': {exc}",
+                            table=edge.table,
+                            column=edge.column,
+                        )
+                    )
         finally:
             engine.dispose()
+        reports.sort(key=lambda r: [t.name for t in ir.tables].index(r.name))
         return MigrationReport(target=self.name, tables=reports, issues=issues)
 
     def _copy_table(self, table: TableIR, frame: pd.DataFrame) -> int:
@@ -161,15 +198,18 @@ class PostgresAdapter:
     def _migrate_dump(self, ir: SchemaIR, data: TableData, issues: list[Issue]) -> MigrationReport:
         assert self.dump_path is not None
         self.dump_path.parent.mkdir(parents=True, exist_ok=True)
-        metadata = build_metadata(ir)
+        schema = plan_schema(ir)
+        metadata = build_metadata(ir, schema.inline_edges())
         dialect = _pg_dialect()
         reports: list[TableReport] = []
         with self.dump_path.open("w", encoding="utf-8") as fh:
             fh.write("BEGIN;\n")
-            for table in ir.tables:
-                fh.write(f"DROP TABLE IF EXISTS {_quote(table.name)};\n")
-                fh.write(ddl_for(metadata.tables[table.name], dialect) + ";\n")
-            for table in ir.tables:
+            for name in reversed(schema.order):
+                fh.write(f"DROP TABLE IF EXISTS {_quote(name)} CASCADE;\n")
+            for name in schema.order:
+                fh.write(ddl_for(metadata.tables[name], dialect) + ";\n")
+            for name in schema.order:
+                table = ir.table(name)
                 frame = data.get(table.name)
                 loaded = 0
                 if frame is not None and len(frame):
@@ -182,7 +222,10 @@ class PostgresAdapter:
                         fh.write(f"INSERT INTO {_quote(table.name)} ({cols}) VALUES\n{values};\n")
                         loaded += len(batch)
                 reports.append(TableReport(name=table.name, rows_loaded=loaded))
+            for edge in schema.deferred:
+                fh.write(add_fk_ddl(metadata, edge, dialect) + ";\n")
             fh.write("COMMIT;\n")
+        reports.sort(key=lambda r: [t.name for t in ir.tables].index(r.name))
         return MigrationReport(
             target=self.name,
             tables=reports,

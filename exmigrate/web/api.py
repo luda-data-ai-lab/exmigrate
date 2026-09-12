@@ -1,4 +1,4 @@
-"""REST API implementing ``contracts/openapi.yaml`` (Phase 1 endpoints)."""
+"""REST API implementing ``contracts/openapi.yaml``."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from werkzeug.utils import secure_filename
 
 from exmigrate.analyzer import analyze_with_data, bind_data
 from exmigrate.contracts.ir import SchemaIR
+from exmigrate.erd import to_mermaid
 from exmigrate.service import TARGETS, run_migration
 from exmigrate.web.jobs import JobNotFound, JobStatus, JobStore
 
@@ -84,6 +85,13 @@ def put_schema(job_id: str) -> tuple[Response, int]:
         return jsonify({"error": str(exc)}), 400
     job_store.save_ir(job_id, ir)
     return jsonify(ir.model_dump(mode="json")), 200
+
+
+@api_bp.get("/jobs/<job_id>/erd")
+def get_erd(job_id: str) -> Response:
+    """Return the Mermaid ER diagram for the current (possibly edited) IR."""
+    text = to_mermaid(store().load_ir(job_id))
+    return Response(text, mimetype="text/plain; charset=utf-8")
 
 
 @api_bp.post("/jobs/<job_id>/migrate")

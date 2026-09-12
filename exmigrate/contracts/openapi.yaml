@@ -59,6 +59,18 @@ paths:
               schema: { $ref: "#/components/schemas/SchemaIR" }
         "400": { description: Invalid IR }
         "404": { description: Unknown job }
+  /api/jobs/{id}/erd:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      summary: Mermaid erDiagram text for the current Schema IR
+      responses:
+        "200":
+          description: Mermaid source
+          content:
+            text/plain:
+              schema: { type: string }
+        "404": { description: Unknown job }
   /api/jobs/{id}/migrate:
     parameters:
       - $ref: "#/components/parameters/JobId"

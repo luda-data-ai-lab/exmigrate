@@ -15,6 +15,13 @@ def test_cli_analyze(clean_workbook: Path, capsys: pytest.CaptureFixture[str]) -
     assert [t["name"] for t in ir["tables"]] == ["customers", "orders", "order_items"]
 
 
+def test_cli_erd(clean_workbook: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["erd", str(clean_workbook)]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("erDiagram\n")
+    assert "orders }o--|| customers" in out
+
+
 def test_cli_migrate_sqlite_and_dump(
     clean_workbook: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

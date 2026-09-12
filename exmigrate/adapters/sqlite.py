@@ -7,7 +7,13 @@ from pathlib import Path
 import sqlalchemy as sa
 from sqlalchemy.dialects import sqlite
 
-from exmigrate.adapters.sql_common import build_metadata, chunked, ddl_for, iter_rows
+from exmigrate.adapters.sql_common import (
+    build_metadata,
+    chunked,
+    ddl_for,
+    iter_rows,
+    plan_schema,
+)
 from exmigrate.contracts.adapter import (
     Issue,
     IssueSeverity,
@@ -31,8 +37,22 @@ class SQLiteAdapter:
         self.db_path = Path(db_path)
 
     def validate(self, ir: SchemaIR) -> list[Issue]:
-        """SQLite is permissive; only duplicate table names are fatal."""
-        issues: list[Issue] = []
+        """Duplicate table names are fatal; unenforceable FKs are warnings."""
+        schema = plan_schema(ir)
+        issues: list[Issue] = list(schema.issues)
+        for edge in schema.deferred:
+            issues.append(
+                Issue(
+                    severity=IssueSeverity.WARNING,
+                    code="fk_not_created",
+                    message=(
+                        f"'{edge.table}.{edge.column}': SQLite cannot add a foreign key after "
+                        "table creation; constraint omitted"
+                    ),
+                    table=edge.table,
+                    column=edge.column,
+                )
+            )
         seen: set[str] = set()
         for table in ir.tables:
             if table.name.lower() in seen:
@@ -57,17 +77,18 @@ class SQLiteAdapter:
         return issues
 
     def plan(self, ir: SchemaIR) -> MigrationPlan:
-        """Render DDL for every table."""
-        metadata = build_metadata(ir)
+        """Render DDL for every table in dependency order."""
+        schema = plan_schema(ir)
+        metadata = build_metadata(ir, schema.inline_edges())
         dialect = sqlite.dialect()
         tables = [
             PlannedTable(
-                name=t.name,
-                ddl=ddl_for(metadata.tables[t.name], dialect),
-                row_count=t.row_count,
+                name=name,
+                ddl=ddl_for(metadata.tables[name], dialect),
+                row_count=ir.table(name).row_count,
                 load_strategy=f"executemany (batch {BATCH_SIZE})",
             )
-            for t in ir.tables
+            for name in schema.order
         ]
         return MigrationPlan(target=self.name, tables=tables, issues=self.validate(ir))
 
@@ -81,12 +102,14 @@ class SQLiteAdapter:
         if self.db_path.exists():
             self.db_path.unlink()
         engine = sa.create_engine(f"sqlite:///{self.db_path}")
-        metadata = build_metadata(ir)
+        schema = plan_schema(ir)
+        metadata = build_metadata(ir, schema.inline_edges())
         reports: list[TableReport] = []
         try:
             with engine.begin() as conn:
                 metadata.create_all(conn)
-            for table in ir.tables:
+            for name in schema.order:
+                table = ir.table(name)
                 sa_table = metadata.tables[table.name]
                 frame = data.get(table.name)
                 loaded = 0
@@ -103,6 +126,8 @@ class SQLiteAdapter:
                     )
         finally:
             engine.dispose()
+        order = {t.name: i for i, t in enumerate(ir.tables)}
+        reports.sort(key=lambda r: order[r.name])
         return MigrationReport(
             target=self.name,
             tables=reports,

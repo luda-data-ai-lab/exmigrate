@@ -1,4 +1,9 @@
-"""Workbook reading and Schema IR construction (Phase 1: values only)."""
+"""Workbook reading and Schema IR construction.
+
+Pass 1 (``data_only=True``) yields values, types and tables; pass 2
+(``data_only=False``) marks formula-derived columns and collects same-file
+lookup evidence, which feeds PK/FK inference.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +15,13 @@ import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
+from exmigrate.analyzer.formulas import SheetFormulas, scan_formulas
+from exmigrate.analyzer.keys import (
+    LookupEvidence,
+    infer_foreign_keys,
+    infer_primary_keys,
+    table_by_sheet,
+)
 from exmigrate.analyzer.naming import dedupe, to_identifier
 from exmigrate.analyzer.types import infer_column
 from exmigrate.contracts.adapter import Issue, IssueSeverity
@@ -38,13 +50,17 @@ def analyze(paths: Sequence[str | Path]) -> tuple[SchemaIR, list[Issue]]:
     return result.ir, result.issues
 
 
-def analyze_with_data(paths: Sequence[str | Path]) -> AnalysisResult:
-    """Analyze workbooks and additionally return the sheet data per table."""
+def analyze_with_data(paths: Sequence[str | Path], *, infer_keys: bool = True) -> AnalysisResult:
+    """Analyze workbooks and additionally return the sheet data per table.
+
+    With ``infer_keys`` the formula pass runs and PK/FK candidates are filled in.
+    """
     tables: list[TableIR] = []
     frames: list[pd.DataFrame] = []
     issues: list[Issue] = []
     raw_names: list[str] = []
     pending: list[tuple[TableIR, pd.DataFrame]] = []
+    workbooks: list[Path] = []
 
     for path in paths:
         path = Path(path)
@@ -57,6 +73,7 @@ def analyze_with_data(paths: Sequence[str | Path]) -> AnalysisResult:
                 )
             )
             continue
+        workbooks.append(path)
         wb = load_workbook(path, data_only=True, read_only=True)
         try:
             for ws in wb.worksheets:
@@ -74,7 +91,76 @@ def analyze_with_data(paths: Sequence[str | Path]) -> AnalysisResult:
         tables.append(table)
         frames.append(frame)
 
-    return AnalysisResult(ir=SchemaIR(version=1, tables=tables), frames=frames, issues=issues)
+    ir = SchemaIR(version=1, tables=tables)
+    if infer_keys:
+        lookups = _apply_formulas(ir, frames, workbooks, issues)
+        infer_primary_keys(ir, frames)
+        infer_foreign_keys(ir, frames, lookups)
+    return AnalysisResult(ir=ir, frames=frames, issues=issues)
+
+
+def _apply_formulas(
+    ir: SchemaIR, frames: Sequence[pd.DataFrame], workbooks: Sequence[Path], issues: list[Issue]
+) -> list[LookupEvidence]:
+    """Run the formula pass, flag derived columns and translate lookups to IR names."""
+    evidence: list[LookupEvidence] = []
+    for path in workbooks:
+        header_rows = {
+            t.source_sheet: t.header_row for t in ir.tables if t.source_file == path.name
+        }
+        facts = scan_formulas(path, header_rows)
+        for sheet, sheet_facts in facts.items():
+            table = table_by_sheet(ir, path.name, sheet)
+            if table is None:
+                continue
+            _mark_derived(table, sheet_facts, frames[ir.tables.index(table)], issues)
+            evidence.extend(_lookup_evidence(ir, path.name, table, sheet_facts))
+    return evidence
+
+
+def _mark_derived(
+    table: TableIR, facts: SheetFormulas, frame: pd.DataFrame, issues: list[Issue]
+) -> None:
+    for col_idx in facts.derived_columns(table.row_count):
+        if col_idx >= len(table.columns):
+            continue
+        column = table.columns[col_idx]
+        column.derived = True
+        if len(frame) and column.null_ratio >= 1.0:
+            issues.append(
+                Issue(
+                    severity=IssueSeverity.INFO,
+                    code="formula_cache_empty",
+                    message=(
+                        f"{table.source_file}/{table.source_sheet}: column '{column.name}' "
+                        "holds formulas without cached values; open and save the workbook "
+                        "in Excel to populate them"
+                    ),
+                    table=table.name,
+                    column=column.name,
+                )
+            )
+
+
+def _lookup_evidence(
+    ir: SchemaIR, file_name: str, table: TableIR, facts: SheetFormulas
+) -> list[LookupEvidence]:
+    out: list[LookupEvidence] = []
+    for edge in facts.lookups:
+        target = table_by_sheet(ir, file_name, edge.target.sheet)
+        if target is None:
+            continue
+        if edge.lookup_column >= len(table.columns) or edge.target.column >= len(target.columns):
+            continue
+        out.append(
+            LookupEvidence(
+                table=table.name,
+                column=table.columns[edge.lookup_column].name,
+                ref_table=target.name,
+                ref_column=target.columns[edge.target.column].name,
+            )
+        )
+    return out
 
 
 def bind_data(ir: SchemaIR, frames: Sequence[pd.DataFrame]) -> dict[str, pd.DataFrame]:

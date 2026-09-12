@@ -31,6 +31,10 @@ def test_upload_rejects_empty(client: FlaskClient) -> None:
     assert res.status_code == 400
 
 
+def test_erd_unknown_job(client: FlaskClient) -> None:
+    assert client.get("/api/jobs/nope/erd").status_code == 404
+
+
 def test_unknown_job(client: FlaskClient) -> None:
     assert client.get("/api/jobs/nope/schema").status_code == 404
     assert client.get("/api/jobs/nope/status").status_code == 404
@@ -45,15 +49,25 @@ def test_full_web_flow(client: FlaskClient, clean_workbook: Path, tmp_path: Path
     status = client.get(f"/api/jobs/{job_id}/status").get_json()
     assert status["state"] == "analyzed" and status["files"] == ["clean.xlsx"]
 
+    erd = client.get(f"/api/jobs/{job_id}/erd")
+    assert erd.status_code == 200 and erd.mimetype == "text/plain"
+    assert 'orders }o--|| customers : "customer_id -> customer_id"' in erd.get_data(as_text=True)
+
     schema["tables"][0]["name"] = "customer"
     schema["tables"][0]["columns"][0]["name"] = "id"
     schema["tables"][0]["columns"][0]["pk"] = True
+    schema["tables"][1]["columns"][1]["fk"] = {"table": "customer", "column": "id", "confidence": 1}
     schema["tables"][1]["columns"][3]["type"] = "text"
+    schema["tables"][2]["columns"][1]["fk"] = None
     res = client.put(f"/api/jobs/{job_id}/schema", json=schema)
     assert res.status_code == 200
     saved = client.get(f"/api/jobs/{job_id}/schema").get_json()
     assert saved["tables"][0]["name"] == "customer"
     assert saved["tables"][0]["columns"][0]["pk"] is True
+    assert saved["tables"][2]["columns"][1]["fk"] is None
+    erd_text = client.get(f"/api/jobs/{job_id}/erd").get_data(as_text=True)
+    assert 'orders }o--|| customer : "customer_id -> id"' in erd_text
+    assert "order_items }o" not in erd_text
 
     res = client.post(
         f"/api/jobs/{job_id}/migrate",
@@ -78,7 +92,11 @@ def test_full_web_flow(client: FlaskClient, clean_workbook: Path, tmp_path: Path
     conn = sqlite3.connect(db_path)
     assert conn.execute("SELECT COUNT(*) FROM customer").fetchone()[0] == 25
     assert conn.execute("PRAGMA table_info(customer)").fetchone()[1] == "id"
+    fks = conn.execute("PRAGMA foreign_key_list(orders)").fetchall()
+    assert [(row[2], row[3], row[4]) for row in fks] == [("customer", "customer_id", "id")]
+    assert conn.execute("PRAGMA foreign_key_list(order_items)").fetchall() == []
     conn.close()
+    assert sqlite_report["issues"] == []
 
     assert client.get(f"/api/jobs/{job_id}/artifacts/missing.bin").status_code == 404
 
