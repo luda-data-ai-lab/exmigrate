@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="h3 mb-3">3. Choose targets</h1>
+<form id="target-form" class="card">
+  <div class="card-body">
+    <div class="form-check mb-2">
+      <input class="form-check-input" type="checkbox" id="t-sqlite" checked>
+      <label class="form-check-label" for="t-sqlite"><strong>SQLite</strong> — downloadable <code>.db</code> file</label>
+    </div>
+    <div class="form-check mb-2">
+      <input class="form-check-input" type="checkbox" id="t-postgres">
+      <label class="form-check-label" for="t-postgres"><strong>PostgreSQL</strong></label>
+    </div>
+    <div id="pg-options" class="ms-4 d-none">
+      <div class="form-check">
+        <input class="form-check-input" type="radio" name="pg-mode" id="pg-live" value="live" checked>
+        <label class="form-check-label" for="pg-live">Live — connect with a DSN</label>
+      </div>
+      <input id="pg-dsn" class="form-control form-control-sm my-2" placeholder="postgresql://user:pass@host:5432/db (blank = PG_DSN_DEFAULT)">
+      <div class="form-check">
+        <input class="form-check-input" type="radio" name="pg-mode" id="pg-dump" value="dump">
+        <label class="form-check-label" for="pg-dump">Dump — download a <code>.sql</code> script</label>
+      </div>
+    </div>
+  </div>
+  <div class="card-footer d-flex gap-2">
+    <a class="btn btn-outline-secondary" href="/jobs/{{ job_id }}/review">Back</a>
+    <button id="migrate-btn" type="submit" class="btn btn-primary">Migrate</button>
+  </div>
+</form>
+<div id="error" class="alert alert-danger mt-3 d-none"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const jobId = {{ job_id | tojson }};
+  const pg = document.getElementById("t-postgres");
+  const pgOpts = document.getElementById("pg-options");
+  const err = document.getElementById("error");
+  const syncPg = () => pgOpts.classList.toggle("d-none", !pg.checked);
+  pg.addEventListener("change", syncPg);
+  window.addEventListener("pageshow", syncPg);
+  syncPg();
+
+  document.getElementById("target-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById("migrate-btn");
+    btn.disabled = true;
+    err.classList.add("d-none");
+    const targets = [];
+    const configs = {};
+    if (document.getElementById("t-sqlite").checked) targets.push("sqlite");
+    if (pg.checked) {
+      targets.push("postgres");
+      const mode = document.querySelector('input[name="pg-mode"]:checked').value;
+      configs.postgres = { mode, dsn: document.getElementById("pg-dsn").value.trim() };
+    }
+    try {
+      if (!targets.length) throw new Error("Select at least one target.");
+      const res = await fetch(`/api/jobs/${jobId}/migrate`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targets, configs }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || res.statusText);
+      window.location.href = `/jobs/${jobId}/report`;
+    } catch (ex) {
+      ExM.showError(err, ex);
+      btn.disabled = false;
+    }
+  });
+})();
+</script>
+{% endblock %}

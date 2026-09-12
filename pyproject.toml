@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "exmigrate"
+version = "0.1.0"
+description = "Migrate Excel workbooks into relational databases."
+requires-python = ">=3.10"
+dependencies = [
+    "flask>=3.0",
+    "pandas>=2.0,<3",
+    "openpyxl>=3.1",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.1",
+    "pydantic>=2.0",
+    "pyarrow>=14.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "mypy",
+    "pytest",
+    "pandas-stubs>=2.0,<3",
+    "types-openpyxl",
+]
+
+[project.scripts]
+exmigrate = "exmigrate.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["exmigrate*"]
+
+[tool.setuptools.package-data]
+exmigrate = ["contracts/openapi.yaml", "web/templates/*.html", "web/static/*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "W"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+plugins = ["pydantic.mypy"]
+files = ["exmigrate", "tests", "fixtures"]
+
+[[tool.mypy.overrides]]
+module = ["pyarrow.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

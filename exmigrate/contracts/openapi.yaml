@@ -1,0 +1,225 @@
+openapi: 3.0.3
+info:
+  title: ExMigrate API
+  version: "1.0"
+paths:
+  /api/upload:
+    post:
+      summary: Upload one or more .xlsx workbooks and analyze them
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        "201":
+          description: Job created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id]
+                properties:
+                  job_id: { type: string }
+                  issues:
+                    type: array
+                    items: { $ref: "#/components/schemas/Issue" }
+        "400": { description: No valid .xlsx files supplied }
+  /api/jobs/{id}/schema:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      summary: Fetch the Schema IR
+      responses:
+        "200":
+          description: Schema IR
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SchemaIR" }
+        "404": { description: Unknown job }
+    put:
+      summary: Save user edits to the Schema IR
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SchemaIR" }
+      responses:
+        "200":
+          description: Saved IR
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SchemaIR" }
+        "400": { description: Invalid IR }
+        "404": { description: Unknown job }
+  /api/jobs/{id}/erd:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      summary: Mermaid erDiagram text for the current Schema IR
+      responses:
+        "200":
+          description: Mermaid source
+          content:
+            text/plain:
+              schema: { type: string }
+        "404": { description: Unknown job }
+  /api/jobs/{id}/migrate:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    post:
+      summary: Run migration to the requested targets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targets]
+              properties:
+                targets:
+                  type: array
+                  items:
+                    type: string
+                    enum: [sqlite, postgres]
+                configs:
+                  type: object
+                  additionalProperties:
+                    type: object
+                  description: Per-target config, e.g. {"postgres": {"dsn": "...", "mode": "live|dump"}}
+      responses:
+        "202":
+          description: Migration finished; status available
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Status" }
+        "400": { description: Invalid request }
+        "404": { description: Unknown job }
+  /api/jobs/{id}/status:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      summary: Job progress and migration report
+      responses:
+        "200":
+          description: Status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Status" }
+        "404": { description: Unknown job }
+  /api/jobs/{id}/artifacts/{name}:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+      - name: name
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Download a produced artifact
+      responses:
+        "200":
+          description: File
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "404": { description: Unknown job or artifact }
+components:
+  parameters:
+    JobId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+  schemas:
+    Issue:
+      type: object
+      required: [severity, code, message]
+      properties:
+        severity: { type: string, enum: [info, warning, error] }
+        code: { type: string }
+        message: { type: string }
+        table: { type: string, nullable: true }
+        column: { type: string, nullable: true }
+    ForeignKey:
+      type: object
+      required: [table, column]
+      properties:
+        table: { type: string }
+        column: { type: string }
+        confidence: { type: number }
+    Column:
+      type: object
+      required: [name, source_name, type]
+      properties:
+        name: { type: string }
+        source_name: { type: string }
+        type: { type: string, enum: [integer, float, boolean, date, datetime, text] }
+        nullable: { type: boolean }
+        pk: { type: boolean }
+        fk: { $ref: "#/components/schemas/ForeignKey", nullable: true }
+        derived: { type: boolean }
+        null_ratio: { type: number }
+        max_length: { type: integer, nullable: true }
+    Table:
+      type: object
+      required: [name, source_file, source_sheet, columns]
+      properties:
+        name: { type: string }
+        source_file: { type: string }
+        source_sheet: { type: string }
+        row_count: { type: integer }
+        header_row: { type: integer }
+        columns:
+          type: array
+          items: { $ref: "#/components/schemas/Column" }
+    SchemaIR:
+      type: object
+      required: [version, tables]
+      properties:
+        version: { type: integer }
+        tables:
+          type: array
+          items: { $ref: "#/components/schemas/Table" }
+    TableReport:
+      type: object
+      properties:
+        name: { type: string }
+        rows_loaded: { type: integer }
+        ok: { type: boolean }
+        error: { type: string, nullable: true }
+    MigrationReport:
+      type: object
+      properties:
+        target: { type: string }
+        tables:
+          type: array
+          items: { $ref: "#/components/schemas/TableReport" }
+        artifacts:
+          type: array
+          items: { type: string }
+        issues:
+          type: array
+          items: { $ref: "#/components/schemas/Issue" }
+    Status:
+      type: object
+      required: [job_id, state]
+      properties:
+        job_id: { type: string }
+        state: { type: string, enum: [analyzed, migrating, done, failed] }
+        files:
+          type: array
+          items: { type: string }
+        issues:
+          type: array
+          items: { $ref: "#/components/schemas/Issue" }
+        reports:
+          type: array
+          items: { $ref: "#/components/schemas/MigrationReport" }
+        error: { type: string, nullable: true }

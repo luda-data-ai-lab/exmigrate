@@ -1,0 +1,125 @@
+"""Filesystem-backed job store: IR JSON + parquet cache per job."""
+
+from __future__ import annotations
+
+import json
+import re
+import shutil
+import uuid
+from pathlib import Path
+from typing import Literal
+
+import pandas as pd
+from pydantic import BaseModel, Field
+
+from exmigrate.contracts.adapter import Issue, MigrationReport
+from exmigrate.contracts.ir import SchemaIR
+
+JobState = Literal["analyzed", "migrating", "done", "failed"]
+_SAFE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+class JobStatus(BaseModel):
+    """Persisted job status document."""
+
+    job_id: str
+    state: JobState = "analyzed"
+    files: list[str] = Field(default_factory=list)
+    issues: list[Issue] = Field(default_factory=list)
+    reports: list[MigrationReport] = Field(default_factory=list)
+    error: str | None = None
+
+
+class JobNotFound(KeyError):
+    """Raised when a job id does not exist."""
+
+
+class JobStore:
+    """Persist jobs under ``root/<job_id>/``."""
+
+    def __init__(self, root: str | Path) -> None:
+        self.root = Path(root)
+        self.root.mkdir(parents=True, exist_ok=True)
+
+    def create(self) -> str:
+        """Allocate a new job directory and return its id."""
+        job_id = uuid.uuid4().hex[:12]
+        (self.root / job_id / "uploads").mkdir(parents=True)
+        (self.root / job_id / "data").mkdir()
+        (self.root / job_id / "artifacts").mkdir()
+        return job_id
+
+    def exists(self, job_id: str) -> bool:
+        """Whether ``job_id`` has a directory."""
+        return bool(_SAFE.sub("", job_id) == job_id) and (self.root / job_id).is_dir()
+
+    def path(self, job_id: str) -> Path:
+        """Job directory, raising ``JobNotFound`` if missing."""
+        if not self.exists(job_id):
+            raise JobNotFound(job_id)
+        return self.root / job_id
+
+    def uploads_dir(self, job_id: str) -> Path:
+        """Directory holding the uploaded workbooks."""
+        return self.path(job_id) / "uploads"
+
+    def artifacts_dir(self, job_id: str) -> Path:
+        """Directory holding produced artifacts."""
+        return self.path(job_id) / "artifacts"
+
+    def save_ir(self, job_id: str, ir: SchemaIR) -> None:
+        """Write the Schema IR as JSON."""
+        (self.path(job_id) / "schema.json").write_text(
+            ir.model_dump_json(indent=2), encoding="utf-8"
+        )
+
+    def load_ir(self, job_id: str) -> SchemaIR:
+        """Read the Schema IR."""
+        raw = (self.path(job_id) / "schema.json").read_text(encoding="utf-8")
+        return SchemaIR.model_validate_json(raw)
+
+    def save_status(self, job_id: str, status: JobStatus) -> None:
+        """Write the status document."""
+        (self.path(job_id) / "status.json").write_text(
+            status.model_dump_json(indent=2), encoding="utf-8"
+        )
+
+    def load_status(self, job_id: str) -> JobStatus:
+        """Read the status document."""
+        raw = (self.path(job_id) / "status.json").read_text(encoding="utf-8")
+        return JobStatus.model_validate_json(raw)
+
+    def save_data(self, job_id: str, frames: list[pd.DataFrame]) -> None:
+        """Cache sheet data as parquet, one file per table in IR table order.
+
+        Columns are stored positionally (``c0``, ``c1``...) so that user renames
+        of tables or columns in the IR never break the mapping back to data.
+        """
+        data_dir = self.path(job_id) / "data"
+        for i, frame in enumerate(frames):
+            _parquet_safe(frame).to_parquet(data_dir / f"{i}.parquet", index=False)
+        (data_dir / "index.json").write_text(json.dumps(len(frames)), encoding="utf-8")
+
+    def load_data(self, job_id: str) -> list[pd.DataFrame]:
+        """Load cached sheet data in IR table order."""
+        data_dir = self.path(job_id) / "data"
+        count = int(json.loads((data_dir / "index.json").read_text(encoding="utf-8")))
+        return [pd.read_parquet(data_dir / f"{i}.parquet") for i in range(count)]
+
+    def delete(self, job_id: str) -> None:
+        """Remove a job entirely."""
+        shutil.rmtree(self.path(job_id), ignore_errors=True)
+
+
+def _parquet_safe(frame: pd.DataFrame) -> pd.DataFrame:
+    """Coerce mixed-type object columns to strings so pyarrow can serialise them."""
+    out = pd.DataFrame(frame.copy())
+    out.columns = [f"c{i}" for i in range(len(out.columns))]
+    for col in out.columns:
+        series = out[col]
+        if series.dtype != object:
+            continue
+        kinds = {type(v) for v in series if v is not None and v == v}
+        if len(kinds) > 1:
+            out[col] = series.map(lambda v: None if v is None else str(v))
+    return out

@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="h3 mb-3">4. Report</h1>
+<div id="state" class="mb-3"></div>
+<div id="reports"></div>
+<a class="btn btn-outline-secondary mt-3" href="/">Start over</a>
+<div id="error" class="alert alert-danger mt-3 d-none"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const jobId = {{ job_id | tojson }};
+  const err = document.getElementById("error");
+  const badge = { done: "success", failed: "danger", migrating: "warning", analyzed: "secondary" };
+
+  fetch(`/api/jobs/${jobId}/status`).then(r => r.json()).then(status => {
+    const st = document.getElementById("state");
+    st.innerHTML = `<span class="badge bg-${badge[status.state] || "secondary"}">${ExM.esc(status.state)}</span>`;
+    if (status.error) {
+      const p = document.createElement("div");
+      p.className = "alert alert-danger mt-2";
+      p.textContent = status.error;
+      st.appendChild(p);
+    }
+    const box = document.getElementById("reports");
+    (status.reports || []).forEach(rep => {
+      const card = document.createElement("div");
+      card.className = "card mb-3";
+      const rows = rep.tables.map(t => `
+        <tr class="${t.ok ? "" : "table-danger"}">
+          <td>${ExM.esc(t.name)}</td><td class="text-end">${t.rows_loaded}</td>
+          <td>${t.ok ? "ok" : ExM.esc(t.error || "failed")}</td>
+        </tr>`).join("");
+      const artifacts = rep.artifacts.map(a =>
+        `<a class="btn btn-sm btn-outline-primary me-2" href="/api/jobs/${jobId}/artifacts/${encodeURIComponent(a)}">Download ${ExM.esc(a)}</a>`
+      ).join("");
+      const issues = (rep.issues || []).map(i => `<li>[${ExM.esc(i.severity)}] ${ExM.esc(i.message)}</li>`).join("");
+      card.innerHTML = `
+        <div class="card-header fw-semibold">${ExM.esc(rep.target)}</div>
+        <div class="card-body p-0">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>Table</th><th class="text-end">Rows loaded</th><th>Status</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        ${issues ? `<ul class="small text-muted mb-0 p-3">${issues}</ul>` : ""}
+        ${artifacts ? `<div class="card-footer">${artifacts}</div>` : ""}`;
+      box.appendChild(card);
+    });
+  }).catch(e => ExM.showError(err, e));
+})();
+</script>
+{% endblock %}

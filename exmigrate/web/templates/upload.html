@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="h3 mb-3">1. Upload workbooks</h1>
+<p class="text-muted">Drop one or more <code>.xlsx</code> files. Each sheet becomes a table.</p>
+<div id="dropzone" class="dropzone border rounded p-5 text-center">
+  <p class="mb-2">Drag &amp; drop files here</p>
+  <p class="text-muted small mb-3">or</p>
+  <input id="file-input" type="file" accept=".xlsx,.xlsm" multiple class="form-control w-auto mx-auto">
+</div>
+<ul id="file-list" class="list-group my-3"></ul>
+<button id="upload-btn" class="btn btn-primary" disabled>Analyze</button>
+<div id="error" class="alert alert-danger mt-3 d-none"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const zone = document.getElementById("dropzone");
+  const input = document.getElementById("file-input");
+  const list = document.getElementById("file-list");
+  const btn = document.getElementById("upload-btn");
+  const err = document.getElementById("error");
+  let files = [];
+
+  const render = () => {
+    list.innerHTML = "";
+    files.forEach(f => {
+      const li = document.createElement("li");
+      li.className = "list-group-item d-flex justify-content-between";
+      li.textContent = f.name;
+      const size = document.createElement("span");
+      size.className = "text-muted small";
+      size.textContent = `${(f.size / 1024).toFixed(1)} KB`;
+      li.appendChild(size);
+      list.appendChild(li);
+    });
+    btn.disabled = files.length === 0;
+  };
+  const add = (fl) => {
+    const rejected = [];
+    for (const f of fl) {
+      if (/\.xls[xm]$/i.test(f.name)) files.push(f); else rejected.push(f.name);
+    }
+    err.classList.toggle("d-none", rejected.length === 0);
+    if (rejected.length) err.textContent = `Unsupported file type (only .xlsx/.xlsm): ${rejected.join(", ")}`;
+    render();
+  };
+  ["dragenter", "dragover"].forEach(ev => zone.addEventListener(ev, e => {
+    e.preventDefault(); zone.classList.add("dragover");
+  }));
+  ["dragleave", "drop"].forEach(ev => zone.addEventListener(ev, e => {
+    e.preventDefault(); zone.classList.remove("dragover");
+  }));
+  zone.addEventListener("drop", e => add(e.dataTransfer.files));
+  input.addEventListener("change", () => { add(input.files); input.value = ""; });
+
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    err.classList.add("d-none");
+    const form = new FormData();
+    files.forEach(f => form.append("files", f));
+    try {
+      const res = await fetch("/api/upload", { method: "POST", body: form });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || res.statusText);
+      window.location.href = `/jobs/${body.job_id}/review`;
+    } catch (e) {
+      err.textContent = e.message;
+      err.classList.remove("d-none");
+      btn.disabled = false;
+    }
+  });
+})();
+</script>
+{% endblock %}
