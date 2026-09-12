@@ -1,4 +1,4 @@
-"""Command-line interface: ``exmigrate analyze|erd|formulas|migrate <files...>``."""
+"""Command-line interface: ``exmigrate analyze|erd|formulas|lineage|migrate <files...>``."""
 
 from __future__ import annotations
 
@@ -10,7 +10,9 @@ from pathlib import Path
 
 from exmigrate.analyzer import analyze_with_data
 from exmigrate.contracts.adapter import IssueSeverity
+from exmigrate.contracts.lineage import LEVELS
 from exmigrate.erd import to_mermaid
+from exmigrate.lineage import to_flowchart
 from exmigrate.service import TARGETS, run_migration
 
 
@@ -29,8 +31,22 @@ def build_parser() -> argparse.ArgumentParser:
     formulas_p.add_argument("files", nargs="+", type=Path)
     formulas_p.add_argument("--json", action="store_true", help="emit the inventory as JSON")
 
+    lineage_p = sub.add_parser("lineage", help="print the formula data-flow (Lineage IR)")
+    lineage_p.add_argument("files", nargs="+", type=Path)
+    lineage_p.add_argument("--level", choices=LEVELS, default="column", help="zoom level")
+    lineage_p.add_argument(
+        "--json", action="store_true", help="emit the Lineage IR as JSON instead of Mermaid"
+    )
+
     migrate_p = sub.add_parser("migrate", help="analyze and migrate workbooks")
     migrate_p.add_argument("files", nargs="+", type=Path)
+    migrate_p.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="TABLE.COLUMN",
+        help="skip a column (repeatable), e.g. derived ones to recompute in the database",
+    )
     migrate_p.add_argument("--target", choices=TARGETS, action="append", required=True)
     migrate_p.add_argument("--out", type=Path, default=Path("out"), help="artifact directory")
     migrate_p.add_argument("--dsn", help="PostgreSQL DSN (default: $PG_DSN_DEFAULT)")
@@ -72,10 +88,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not result.formulas.columns:
             print("no formulas found")
         return 0
+    if args.command == "lineage":
+        lineage = result.lineage.at_level(args.level)
+        if args.json:
+            print(lineage.model_dump_json(indent=2, by_alias=True))
+        else:
+            print(to_flowchart(lineage), end="")
+        return 0
 
     if not result.ir.tables:
         print("no tables found", file=sys.stderr)
         return 1
+
+    for spec in args.exclude:
+        table_name, _, column_name = spec.rpartition(".")
+        try:
+            result.ir.table(table_name).column(column_name).include = False
+        except KeyError:
+            print(f"--exclude: unknown column '{spec}'", file=sys.stderr)
+            return 2
 
     configs: dict[str, dict[str, object]] = {
         "postgres": {"mode": "dump" if args.dump else "live", "dsn": args.dsn or ""}

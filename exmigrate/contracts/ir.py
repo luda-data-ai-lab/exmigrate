@@ -40,6 +40,7 @@ class ColumnIR(BaseModel):
     pk: bool = False
     fk: ForeignKey | None = None
     derived: bool = False
+    include: bool = True
     null_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
     max_length: int | None = None
 
@@ -74,3 +75,23 @@ class SchemaIR(BaseModel):
             if tbl.name == name:
                 return tbl
         raise KeyError(name)
+
+    def excluded_columns(self) -> list[tuple[str, str]]:
+        """``(table, column)`` pairs the user opted out of migrating."""
+        return [(t.name, c.name) for t in self.tables for c in t.columns if not c.include]
+
+    def for_migration(self) -> SchemaIR:
+        """Copy without excluded columns; FKs pointing at them are dropped."""
+        excluded = set(self.excluded_columns())
+        tables: list[TableIR] = []
+        for table in self.tables:
+            columns: list[ColumnIR] = []
+            for col in table.columns:
+                if not col.include:
+                    continue
+                copy = col.model_copy(deep=True)
+                if copy.fk is not None and (copy.fk.table, copy.fk.column) in excluded:
+                    copy.fk = None
+                columns.append(copy)
+            tables.append(table.model_copy(update={"columns": columns}))
+        return SchemaIR(version=self.version, tables=tables)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast
@@ -12,12 +13,15 @@ from werkzeug.utils import secure_filename
 
 from exmigrate.analyzer import analyze_with_data, bind_data
 from exmigrate.contracts.ir import SchemaIR
+from exmigrate.contracts.lineage import LEVELS, LineageLevel
 from exmigrate.erd import to_mermaid
+from exmigrate.lineage import to_flowchart
 from exmigrate.service import TARGETS, run_migration
 from exmigrate.web.jobs import JobNotFound, JobStatus, JobStore
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 ALLOWED_SUFFIXES = {".xlsx", ".xlsm"}
+_UNSAFE_CHARS = re.compile(r"[\x00-\x1f\x7f/\\:*?\"<>|]")
 
 
 def store() -> JobStore:
@@ -41,7 +45,7 @@ def upload() -> tuple[Response, int]:
     uploads = job_store.uploads_dir(job_id)
     saved: list[Path] = []
     for f in files:
-        name = secure_filename(f.filename or "") or "workbook.xlsx"
+        name = _safe_filename(f.filename or "")
         if Path(name).suffix.lower() not in ALLOWED_SUFFIXES:
             continue
         dest = uploads / name
@@ -55,6 +59,7 @@ def upload() -> tuple[Response, int]:
     job_store.save_ir(job_id, result.ir)
     job_store.save_data(job_id, result.frames)
     job_store.save_formulas(job_id, result.formulas)
+    job_store.save_lineage(job_id, result.lineage)
     status = JobStatus(
         job_id=job_id,
         state="analyzed",
@@ -134,6 +139,27 @@ def get_formulas(job_id: str) -> Response:
     return jsonify({"functions": inventory.function_totals(), "files": files})
 
 
+@api_bp.get("/jobs/<job_id>/lineage")
+def get_lineage(job_id: str) -> tuple[Response, int]:
+    """Return the Lineage IR at ``level`` (file|sheet|column) plus its Mermaid flowchart."""
+    level = _lineage_level(request.args.get("level", "column"))
+    if level is None:
+        return jsonify({"error": f"level must be one of {', '.join(LEVELS)}"}), 400
+    lineage = store().load_lineage(job_id).at_level(level)
+    payload = lineage.model_dump(mode="json", by_alias=True)
+    payload["mermaid"] = to_flowchart(lineage)
+    return jsonify(payload), 200
+
+
+def _lineage_level(value: str) -> LineageLevel | None:
+    if value == "col":
+        value = "column"
+    for level in LEVELS:
+        if value == level:
+            return level
+    return None
+
+
 @api_bp.post("/jobs/<job_id>/migrate")
 def migrate(job_id: str) -> tuple[Response, int]:
     """Run the migration for the requested targets."""
@@ -177,6 +203,14 @@ def get_artifact(job_id: str, name: str) -> Response:
     """Download a produced artifact."""
     artifacts = store().artifacts_dir(job_id)
     return send_from_directory(artifacts, name, as_attachment=True)
+
+
+def _safe_filename(filename: str) -> str:
+    """Basename with path separators and control characters removed; keeps non-ASCII."""
+    base = _UNSAFE_CHARS.sub("", filename.replace("\\", "/").rsplit("/", 1)[-1]).strip(" .")
+    if not base.isprintable():
+        base = secure_filename(base)
+    return base or "workbook.xlsx"
 
 
 def _summary(status: JobStatus) -> dict[str, object]:

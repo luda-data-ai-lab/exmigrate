@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from exmigrate.contracts.adapter import Issue, MigrationReport
 from exmigrate.contracts.formulas import FormulaInventory
 from exmigrate.contracts.ir import SchemaIR
+from exmigrate.contracts.lineage import LineageIR
 
 JobState = Literal["analyzed", "migrating", "done", "failed"]
 _SAFE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -97,6 +98,19 @@ class JobStore:
         if not file.is_file():
             return FormulaInventory()
         return FormulaInventory.model_validate_json(file.read_text(encoding="utf-8"))
+
+    def save_lineage(self, job_id: str, lineage: LineageIR) -> None:
+        """Write the column-level Lineage IR as JSON."""
+        (self.path(job_id) / "lineage.json").write_text(
+            lineage.model_dump_json(indent=2, by_alias=True), encoding="utf-8"
+        )
+
+    def load_lineage(self, job_id: str) -> LineageIR:
+        """Read the Lineage IR (empty for jobs analyzed before it existed)."""
+        file = self.path(job_id) / "lineage.json"
+        if not file.is_file():
+            return LineageIR()
+        return LineageIR.model_validate_json(file.read_text(encoding="utf-8"))
 
     def save_status(self, job_id: str, status: JobStatus) -> None:
         """Write the status document."""

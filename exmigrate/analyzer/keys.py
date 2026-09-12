@@ -18,18 +18,23 @@ CONF_LOOKUP = 0.95
 CONF_NAME_AND_VALUES = 0.9
 CONF_VALUES_ONLY = 0.7
 CONF_LOOKUP_ALL = 0.98
+CONF_CROSS_FILE = 0.99
 
 _NUMERIC = {ColumnType.INTEGER, ColumnType.FLOAT}
 
 
 @dataclass(frozen=True)
 class LookupEvidence:
-    """A same-file VLOOKUP/XLOOKUP from ``(table, column)`` into ``(ref_table, ref_column)``."""
+    """A lookup/aggregate formula from ``(table, column)`` into ``(ref_table, ref_column)``.
+
+    ``cross_file`` marks references into another uploaded workbook.
+    """
 
     table: str
     column: str
     ref_table: str
     ref_column: str
+    cross_file: bool = False
 
 
 def infer_primary_keys(ir: SchemaIR, frames: Sequence[pd.DataFrame]) -> None:
@@ -80,7 +85,8 @@ def infer_foreign_keys(
                 values_match = _contained(frame.iloc[:, i], ref_set)
                 if values_match and not (has_lookup or name_match):
                     values_match = _coverage(frame.iloc[:, i], ref_set) >= VALUES_ONLY_MIN_COVERAGE
-                confidence = _score(has_lookup, name_match, values_match)
+                cross_file = has_lookup and evidence is not None and evidence.cross_file
+                confidence = _score(has_lookup, name_match, values_match, cross_file)
                 if confidence is None:
                     continue
                 if best is None or confidence > best.confidence:
@@ -89,7 +95,11 @@ def infer_foreign_keys(
                 col.fk = best
 
 
-def _score(has_lookup: bool, name_match: bool, values_match: bool) -> float | None:
+def _score(
+    has_lookup: bool, name_match: bool, values_match: bool, cross_file: bool = False
+) -> float | None:
+    if cross_file:
+        return CONF_CROSS_FILE
     if has_lookup and name_match and values_match:
         return CONF_LOOKUP_ALL
     if has_lookup:

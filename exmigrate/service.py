@@ -7,8 +7,16 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Literal
 
+import pandas as pd
+
 from exmigrate.adapters import PostgresAdapter, SQLiteAdapter
-from exmigrate.contracts.adapter import Adapter, MigrationReport, TableData
+from exmigrate.contracts.adapter import (
+    Adapter,
+    Issue,
+    IssueSeverity,
+    MigrationReport,
+    TableData,
+)
 from exmigrate.contracts.ir import SchemaIR
 
 TargetName = Literal["sqlite", "postgres"]
@@ -37,13 +45,47 @@ def run_migration(
     configs: Mapping[str, Mapping[str, object]],
     artifacts_dir: Path,
 ) -> list[MigrationReport]:
-    """Run every requested target and collect its report."""
+    """Run every requested target and collect its report.
+
+    Columns with ``include=False`` (typically formula-derived ones the user
+    wants recomputed downstream) are removed from both IR and data first.
+    """
+    excluded = ir.excluded_columns()
+    ir, data = apply_exclusions(ir, data)
     reports: list[MigrationReport] = []
     for target in targets:
         config = configs.get(target, {})
         adapter = build_adapter(target, config, artifacts_dir)
-        reports.append(adapter.migrate(ir, data))
+        report = adapter.migrate(ir, data)
+        report.issues.extend(_exclusion_issues(excluded))
+        reports.append(report)
     return reports
+
+
+def _exclusion_issues(excluded: list[tuple[str, str]]) -> list[Issue]:
+    return [
+        Issue(
+            severity=IssueSeverity.INFO,
+            code="column_excluded",
+            message=f"{table}.{column} was not migrated (excluded in review)",
+            table=table,
+            column=column,
+        )
+        for table, column in excluded
+    ]
+
+
+def apply_exclusions(ir: SchemaIR, data: TableData) -> tuple[SchemaIR, TableData]:
+    """Strip excluded columns from ``ir`` and the matching frames in ``data``."""
+    excluded = ir.excluded_columns()
+    if not excluded:
+        return ir, data
+    trimmed: dict[str, pd.DataFrame] = dict(data)
+    for table, column in excluded:
+        frame = trimmed.get(table)
+        if frame is not None and column in frame.columns:
+            trimmed[table] = frame.drop(columns=[column])
+    return ir.for_migration(), trimmed
 
 
 def as_target(value: str) -> TargetName:
