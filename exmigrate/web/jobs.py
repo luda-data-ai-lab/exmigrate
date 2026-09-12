@@ -54,7 +54,10 @@ class JobStore:
 
     def exists(self, job_id: str) -> bool:
         """Whether ``job_id`` has a directory."""
-        return bool(_SAFE.sub("", job_id) == job_id) and (self.root / job_id).is_dir()
+        if not job_id or job_id in {".", ".."} or _SAFE.sub("", job_id) != job_id:
+            return False
+        path = self.root / job_id
+        return path.is_dir() and path.resolve().parent == self.root.resolve()
 
     def path(self, job_id: str) -> Path:
         """Job directory, raising ``JobNotFound`` if missing."""

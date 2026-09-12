@@ -66,6 +66,9 @@ def test_job_history(client: FlaskClient, clean_workbook: Path) -> None:
     assert client.delete(f"/api/jobs/{first}").status_code == 204
     assert client.delete(f"/api/jobs/{first}").status_code == 404
     assert client.delete("/api/jobs/../etc").status_code == 404
+    for bad in ("%2e", "%2e%2e", ".", "..", "%2e%2e%2fjobs"):
+        assert client.delete(f"/api/jobs/{bad}").status_code in (404, 405)
+        assert client.get(f"/api/jobs/{bad}/status").status_code == 404
     assert [j["job_id"] for j in client.get("/api/jobs").get_json()] == [second]
 
 
