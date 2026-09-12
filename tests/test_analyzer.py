@@ -97,6 +97,7 @@ def test_function_names() -> None:
     assert function_names("=_xlfn.XLOOKUP(B2,Orders!$A$2:$A$61,Orders!$D$2:$D$61)") == ["XLOOKUP"]
     assert function_names('=SUM(A1:A3)+if(B1>0,ROUND(B1,2),"x(")') == ["SUM", "IF", "ROUND"]
     assert function_names("='My Sheet'!A2*Sheet1!B2") == []
+    assert function_names("='O''Brien ROUND(2026)'!A2+SUM('My (x)'!A1:A2)") == ["SUM"]
 
 
 def test_formula_inventory(clean_workbook: Path) -> None:

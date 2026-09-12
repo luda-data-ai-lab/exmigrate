@@ -96,7 +96,7 @@ def scan_formulas(path: str | Path, header_rows: dict[str, int]) -> dict[str, Sh
 
 def function_names(formula: str) -> list[str]:
     """Upper-cased function names called in ``formula`` (``_xlfn.`` prefixes stripped)."""
-    stripped = re.sub(r'"(?:[^"]|"")*"', '""', formula)
+    stripped = re.sub(r"\"(?:[^\"]|\"\")*\"|'(?:[^']|'')*'", "''", formula)
     return [m.group(1).upper() for m in _ANY_FUNC_RE.finditer(stripped)]
 
 
