@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="h3 mb-3">Job history</h1>
+<p class="text-muted">Every upload is kept as a job. Reopen one to review its schema or download artifacts again.</p>
+<div id="error" class="alert alert-danger d-none"></div>
+<p id="empty" class="text-muted d-none">No jobs yet. <a href="/">Upload a workbook</a> to start.</p>
+<table id="jobs" class="table table-sm align-middle d-none">
+  <thead>
+    <tr>
+      <th>Created</th>
+      <th>Files</th>
+      <th>Tables</th>
+      <th>State</th>
+      <th>Targets</th>
+      <th class="text-end">Actions</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const table = document.getElementById("jobs");
+  const tbody = table.querySelector("tbody");
+  const empty = document.getElementById("empty");
+  const err = document.getElementById("error");
+  const badge = { analyzed: "secondary", migrating: "info", done: "success", failed: "danger" };
+
+  const cell = (parent, text, cls) => {
+    const td = document.createElement("td");
+    if (cls) td.className = cls;
+    td.textContent = text;
+    parent.appendChild(td);
+    return td;
+  };
+  const link = (parent, href, text, cls) => {
+    const a = document.createElement("a");
+    a.href = href; a.textContent = text; a.className = cls;
+    parent.appendChild(a);
+  };
+
+  const render = (jobs) => {
+    tbody.innerHTML = "";
+    table.classList.toggle("d-none", jobs.length === 0);
+    empty.classList.toggle("d-none", jobs.length > 0);
+    jobs.forEach(j => {
+      const tr = document.createElement("tr");
+      const created = j.created_at ? new Date(j.created_at).toLocaleString() : "—";
+      const when = cell(tr, created, "text-nowrap");
+      const id = document.createElement("div");
+      id.className = "text-muted small font-monospace"; id.textContent = j.job_id;
+      when.appendChild(id);
+      cell(tr, j.files.join(", "));
+      cell(tr, j.tables.length ? `${j.tables.length}: ${j.tables.join(", ")}` : "—", "small");
+      const state = cell(tr, "");
+      const b = document.createElement("span");
+      b.className = `badge text-bg-${badge[j.state] || "secondary"}`; b.textContent = j.state;
+      state.appendChild(b);
+      if (j.error) { const e = document.createElement("div"); e.className = "small text-danger"; e.textContent = j.error; state.appendChild(e); }
+      cell(tr, j.targets.join(", ") || "—");
+      const actions = cell(tr, "", "text-end text-nowrap");
+      link(actions, `/jobs/${j.job_id}/review`, "Review", "btn btn-sm btn-outline-primary me-1");
+      if (j.state === "done" || j.state === "failed") {
+        link(actions, `/jobs/${j.job_id}/report`, "Report", "btn btn-sm btn-outline-secondary me-1");
+      }
+      const del = document.createElement("button");
+      del.className = "btn btn-sm btn-outline-danger"; del.textContent = "Delete";
+      del.addEventListener("click", async () => {
+        if (!confirm(`Delete job ${j.job_id} and its files?`)) return;
+        const res = await fetch(`/api/jobs/${j.job_id}`, { method: "DELETE" });
+        if (res.ok || res.status === 404) load(); else showError(`Delete failed (${res.status})`);
+      });
+      actions.appendChild(del);
+      tbody.appendChild(tr);
+    });
+  };
+  const showError = (msg) => { err.textContent = msg; err.classList.remove("d-none"); };
+  const load = async () => {
+    err.classList.add("d-none");
+    try {
+      const res = await fetch("/api/jobs");
+      if (!res.ok) throw new Error(res.statusText);
+      render(await res.json());
+    } catch (e) { showError(`Could not load jobs: ${e.message}`); }
+  };
+  load();
+})();
+</script>
+{% endblock %}

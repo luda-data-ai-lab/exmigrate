@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast
 
@@ -54,10 +55,30 @@ def upload() -> tuple[Response, int]:
     job_store.save_ir(job_id, result.ir)
     job_store.save_data(job_id, result.frames)
     status = JobStatus(
-        job_id=job_id, state="analyzed", files=[p.name for p in saved], issues=result.issues
+        job_id=job_id,
+        state="analyzed",
+        created_at=datetime.now(tz=timezone.utc),
+        files=[p.name for p in saved],
+        tables=[t.name for t in result.ir.tables],
+        issues=result.issues,
     )
     job_store.save_status(job_id, status)
     return jsonify({"job_id": job_id, "issues": [i.model_dump() for i in result.issues]}), 201
+
+
+@api_bp.get("/jobs")
+def list_jobs() -> Response:
+    """Return a summary of every job, newest first."""
+    return jsonify([_summary(s) for s in store().list_jobs()])
+
+
+@api_bp.delete("/jobs/<job_id>")
+def delete_job(job_id: str) -> tuple[str, int]:
+    """Remove a job and all of its files."""
+    job_store = store()
+    job_store.path(job_id)
+    job_store.delete(job_id)
+    return "", 204
 
 
 @api_bp.get("/jobs/<job_id>/schema")
@@ -84,6 +105,9 @@ def put_schema(job_id: str) -> tuple[Response, int]:
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     job_store.save_ir(job_id, ir)
+    status = job_store.load_status(job_id)
+    status.tables = [t.name for t in ir.tables]
+    job_store.save_status(job_id, status)
     return jsonify(ir.model_dump(mode="json")), 200
 
 
@@ -137,6 +161,18 @@ def get_artifact(job_id: str, name: str) -> Response:
     """Download a produced artifact."""
     artifacts = store().artifacts_dir(job_id)
     return send_from_directory(artifacts, name, as_attachment=True)
+
+
+def _summary(status: JobStatus) -> dict[str, object]:
+    return {
+        "job_id": status.job_id,
+        "state": status.state,
+        "created_at": status.created_at.isoformat() if status.created_at else None,
+        "files": status.files,
+        "tables": status.tables,
+        "targets": [r.target for r in status.reports],
+        "error": status.error,
+    }
 
 
 def _status_payload(status: JobStatus) -> dict[str, object]:

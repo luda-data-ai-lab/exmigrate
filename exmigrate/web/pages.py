@@ -1,4 +1,4 @@
-"""HTML pages: upload → review → target → report."""
+"""HTML pages: upload → review → target → report, plus the job history."""
 
 from __future__ import annotations
 
@@ -21,6 +21,12 @@ def _require_job(job_id: str) -> None:
 def upload_page() -> str:
     """Drag-and-drop upload."""
     return render_template("upload.html")
+
+
+@pages_bp.get("/jobs")
+def history_page() -> str:
+    """List of past jobs."""
+    return render_template("history.html")
 
 
 @pages_bp.get("/jobs/<job_id>/review")
