@@ -123,7 +123,8 @@ window.ExM.renderMermaid = async (el, src) => {
         const none = document.createElement("option");
         none.value = ""; none.textContent = "—";
         fkSel.appendChild(none);
-        const current = fkPosition(c.fk);
+        let current = fkPosition(c.fk);
+        if (current && !targets.some(tg => `${tg.ti}:${tg.ci}` === current)) current = "";
         fkSel.dataset.current = current;
         targets.forEach(tg => {
           const o = document.createElement("option");
@@ -132,7 +133,7 @@ window.ExM.renderMermaid = async (el, src) => {
         });
         if (c.fk && !current) {
           const o = document.createElement("option");
-          o.value = "__stale__"; o.textContent = `${c.fk.table}.${c.fk.column} (missing)`; o.selected = true;
+          o.value = "__stale__"; o.textContent = `${c.fk.table}.${c.fk.column} (not a PK)`; o.selected = true;
           fkSel.appendChild(o);
         }
         const conf = tr.children[6].querySelector("span");
