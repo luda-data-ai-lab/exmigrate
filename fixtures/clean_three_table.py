@@ -70,7 +70,8 @@ def generate(path: str | Path, *, seed: int = 42) -> Path:
                 rng.randint(1, 10),
                 round(rng.uniform(1, 200), 2),
                 f"=D{row}*E{row}",
-                f"=XLOOKUP(B{row},Orders!$A$2:$A${ORDER_ROWS + 1},Orders!$D$2:$D${ORDER_ROWS + 1})",
+                f"=_xlfn.XLOOKUP(B{row},Orders!$A$2:$A${ORDER_ROWS + 1},"
+                f"Orders!$D$2:$D${ORDER_ROWS + 1})",
             ]
         )
 
