@@ -54,6 +54,7 @@ def upload() -> tuple[Response, int]:
     result = analyze_with_data(saved)
     job_store.save_ir(job_id, result.ir)
     job_store.save_data(job_id, result.frames)
+    job_store.save_formulas(job_id, result.formulas)
     status = JobStatus(
         job_id=job_id,
         state="analyzed",
@@ -116,6 +117,21 @@ def get_erd(job_id: str) -> Response:
     """Return the Mermaid ER diagram for the current (possibly edited) IR."""
     text = to_mermaid(store().load_ir(job_id))
     return Response(text, mimetype="text/plain; charset=utf-8")
+
+
+@api_bp.get("/jobs/<job_id>/formulas")
+def get_formulas(job_id: str) -> Response:
+    """Return the formula inventory (per-column functions, counts, samples) by file."""
+    inventory = store().load_formulas(job_id)
+    files = [
+        {
+            "file": name,
+            "functions": inventory.function_totals(name),
+            "columns": [c.model_dump(mode="json") for c in cols],
+        }
+        for name, cols in inventory.by_file().items()
+    ]
+    return jsonify({"functions": inventory.function_totals(), "files": files})
 
 
 @api_bp.post("/jobs/<job_id>/migrate")

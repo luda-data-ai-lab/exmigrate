@@ -17,6 +17,7 @@ pip install -e ".[dev]"
 ```bash
 exmigrate analyze book.xlsx                                  # print Schema IR
 exmigrate erd book.xlsx > erd.mmd                            # Mermaid erDiagram
+exmigrate formulas book.xlsx [--json]                        # functions used per sheet column
 exmigrate migrate book.xlsx --target sqlite --out out/       # out/migration.db
 exmigrate migrate book.xlsx --target postgres --dump --out out/   # out/migration.sql
 PG_DSN_DEFAULT=postgresql://user:pass@host/db exmigrate migrate book.xlsx --target postgres
@@ -29,7 +30,8 @@ python -m exmigrate.web.app        # http://127.0.0.1:5000
 ```
 
 Upload → review (rename tables/columns, change types, confirm PK/FK, view the
-ERD tab) → choose targets → report with artifact downloads. Job state lives
+ERD tab, browse the **Formulas** tab: functions used per file / sheet column
+with counts, referenced sheets and a sample formula) → choose targets → report with artifact downloads. Job state lives
 under `./jobs/` (override with `EXMIGRATE_JOBS_DIR`); the **History** page
 (`/jobs`) lists past jobs so you can reopen their review/report or delete them.
 The REST API is described in `exmigrate/contracts/openapi.yaml`.

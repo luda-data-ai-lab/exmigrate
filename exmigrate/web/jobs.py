@@ -14,6 +14,7 @@ import pandas as pd
 from pydantic import BaseModel, Field
 
 from exmigrate.contracts.adapter import Issue, MigrationReport
+from exmigrate.contracts.formulas import FormulaInventory
 from exmigrate.contracts.ir import SchemaIR
 
 JobState = Literal["analyzed", "migrating", "done", "failed"]
@@ -83,6 +84,19 @@ class JobStore:
         """Read the Schema IR."""
         raw = (self.path(job_id) / "schema.json").read_text(encoding="utf-8")
         return SchemaIR.model_validate_json(raw)
+
+    def save_formulas(self, job_id: str, inventory: FormulaInventory) -> None:
+        """Write the formula inventory as JSON."""
+        (self.path(job_id) / "formulas.json").write_text(
+            inventory.model_dump_json(indent=2), encoding="utf-8"
+        )
+
+    def load_formulas(self, job_id: str) -> FormulaInventory:
+        """Read the formula inventory (empty for jobs analyzed before it existed)."""
+        file = self.path(job_id) / "formulas.json"
+        if not file.is_file():
+            return FormulaInventory()
+        return FormulaInventory.model_validate_json(file.read_text(encoding="utf-8"))
 
     def save_status(self, job_id: str, status: JobStatus) -> None:
         """Write the status document."""

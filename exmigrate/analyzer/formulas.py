@@ -21,6 +21,7 @@ DERIVED_MIN_RATIO = 0.5
 _CELL_RE = re.compile(r"^\$?([A-Za-z]{1,3})\$?(\d+)$")
 _RANGE_RE = re.compile(r"^\$?([A-Za-z]{1,3})(?:\$?\d+)?(?::\$?([A-Za-z]{1,3})(?:\$?\d+)?)?$")
 _FUNC_RE = re.compile(r"(VLOOKUP|XLOOKUP)\s*\(", re.IGNORECASE)
+_ANY_FUNC_RE = re.compile(r"(?<![A-Za-z0-9_.!])(?:_xl[a-z]+\.)?([A-Za-z][A-Za-z0-9_.]*)\s*\(")
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,7 @@ class SheetFormulas:
     samples: dict[int, str] = field(default_factory=dict)
     lookups: list[LookupEdge] = field(default_factory=list)
     references: dict[int, set[SheetRef]] = field(default_factory=dict)
+    functions: dict[int, dict[str, int]] = field(default_factory=dict)
 
     def derived_columns(self, row_count: int) -> set[int]:
         """Columns where at least ``DERIVED_MIN_RATIO`` of rows hold a formula."""
@@ -81,13 +83,21 @@ def scan_formulas(path: str | Path, header_rows: dict[str, int]) -> dict[str, Sh
                     if not isinstance(value, str) or not value.startswith("="):
                         continue
                     facts.formula_counts[col] = facts.formula_counts.get(col, 0) + 1
-                    if col not in facts.samples:
-                        facts.samples[col] = value
-                        _extract(value, ws.title, col, facts)
+                    counts = facts.functions.setdefault(col, {})
+                    for name in function_names(value):
+                        counts[name] = counts.get(name, 0) + 1
+                    facts.samples.setdefault(col, value)
+                    _extract(value, ws.title, col, facts)
             out[ws.title] = facts
     finally:
         wb.close()
     return out
+
+
+def function_names(formula: str) -> list[str]:
+    """Upper-cased function names called in ``formula`` (``_xlfn.`` prefixes stripped)."""
+    stripped = re.sub(r"\"(?:[^\"]|\"\")*\"|'(?:[^']|'')*'", "''", formula)
+    return [m.group(1).upper() for m in _ANY_FUNC_RE.finditer(stripped)]
 
 
 def _extract(formula: str, sheet: str, col: int, facts: SheetFormulas) -> None:

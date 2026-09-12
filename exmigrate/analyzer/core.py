@@ -25,6 +25,7 @@ from exmigrate.analyzer.keys import (
 from exmigrate.analyzer.naming import dedupe, to_identifier
 from exmigrate.analyzer.types import infer_column
 from exmigrate.contracts.adapter import Issue, IssueSeverity
+from exmigrate.contracts.formulas import FormulaColumn, FormulaInventory
 from exmigrate.contracts.ir import ColumnIR, SchemaIR, TableIR
 
 HEADER_MIN_STRING_RATIO = 0.8
@@ -38,6 +39,7 @@ class AnalysisResult:
     ir: SchemaIR
     frames: list[pd.DataFrame] = field(default_factory=list)
     issues: list[Issue] = field(default_factory=list)
+    formulas: FormulaInventory = field(default_factory=FormulaInventory)
 
     def table_data(self) -> dict[str, pd.DataFrame]:
         """Bind frames to the (possibly edited) IR for adapters."""
@@ -92,17 +94,22 @@ def analyze_with_data(paths: Sequence[str | Path], *, infer_keys: bool = True) -
         frames.append(frame)
 
     ir = SchemaIR(version=1, tables=tables)
+    inventory = FormulaInventory()
     if infer_keys:
-        lookups = _apply_formulas(ir, frames, workbooks, issues)
+        lookups = _apply_formulas(ir, frames, workbooks, issues, inventory)
         infer_primary_keys(ir, frames)
         infer_foreign_keys(ir, frames, lookups)
-    return AnalysisResult(ir=ir, frames=frames, issues=issues)
+    return AnalysisResult(ir=ir, frames=frames, issues=issues, formulas=inventory)
 
 
 def _apply_formulas(
-    ir: SchemaIR, frames: Sequence[pd.DataFrame], workbooks: Sequence[Path], issues: list[Issue]
+    ir: SchemaIR,
+    frames: Sequence[pd.DataFrame],
+    workbooks: Sequence[Path],
+    issues: list[Issue],
+    inventory: FormulaInventory,
 ) -> list[LookupEvidence]:
-    """Run the formula pass, flag derived columns and translate lookups to IR names."""
+    """Run the formula pass, flag derived columns, fill the inventory and translate lookups."""
     evidence: list[LookupEvidence] = []
     for path in workbooks:
         header_rows = {
@@ -114,6 +121,7 @@ def _apply_formulas(
             if table is None:
                 continue
             _mark_derived(table, sheet_facts, frames[ir.tables.index(table)], issues)
+            inventory.columns.extend(_inventory(table, sheet_facts))
             evidence.extend(_lookup_evidence(ir, path.name, table, sheet_facts))
     return evidence
 
@@ -140,6 +148,30 @@ def _mark_derived(
                     column=column.name,
                 )
             )
+
+
+def _inventory(table: TableIR, facts: SheetFormulas) -> list[FormulaColumn]:
+    derived = facts.derived_columns(table.row_count)
+    out: list[FormulaColumn] = []
+    for col_idx, count in sorted(facts.formula_counts.items()):
+        if col_idx >= len(table.columns):
+            continue
+        functions = facts.functions.get(col_idx, {})
+        out.append(
+            FormulaColumn(
+                file=table.source_file,
+                sheet=table.source_sheet,
+                table=table.name,
+                column=table.columns[col_idx].name,
+                formula_cells=count,
+                row_count=table.row_count,
+                derived=col_idx in derived,
+                functions=dict(sorted(functions.items(), key=lambda kv: (-kv[1], kv[0]))),
+                references=sorted({r.sheet for r in facts.references.get(col_idx, set())}),
+                sample=facts.samples.get(col_idx, ""),
+            )
+        )
+    return out
 
 
 def _lookup_evidence(

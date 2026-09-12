@@ -1,4 +1,4 @@
-"""Command-line interface: ``exmigrate analyze|erd|migrate <files...>``."""
+"""Command-line interface: ``exmigrate analyze|erd|formulas|migrate <files...>``."""
 
 from __future__ import annotations
 
@@ -25,6 +25,10 @@ def build_parser() -> argparse.ArgumentParser:
     erd_p = sub.add_parser("erd", help="print a Mermaid ER diagram for workbooks")
     erd_p.add_argument("files", nargs="+", type=Path)
 
+    formulas_p = sub.add_parser("formulas", help="list the functions used per workbook column")
+    formulas_p.add_argument("files", nargs="+", type=Path)
+    formulas_p.add_argument("--json", action="store_true", help="emit the inventory as JSON")
+
     migrate_p = sub.add_parser("migrate", help="analyze and migrate workbooks")
     migrate_p.add_argument("files", nargs="+", type=Path)
     migrate_p.add_argument("--target", choices=TARGETS, action="append", required=True)
@@ -49,6 +53,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "erd":
         print(to_mermaid(result.ir), end="")
+        return 0
+    if args.command == "formulas":
+        if args.json:
+            print(result.formulas.model_dump_json(indent=2))
+            return 0
+        for file, columns in result.formulas.by_file().items():
+            totals = result.formulas.function_totals(file)
+            summary = ", ".join(f"{n} x{c}" for n, c in totals.items()) or "(no function calls)"
+            print(f"== {file}: {summary}")
+            for col in columns:
+                funcs = ", ".join(f"{n} x{c}" for n, c in col.functions.items()) or "-"
+                refs = f"  -> {', '.join(col.references)}" if col.references else ""
+                print(
+                    f"  {col.sheet}!{col.column:<24} {col.formula_cells:>6}/{col.row_count:<6} "
+                    f"{funcs}{refs}  {col.sample}"
+                )
+        if not result.formulas.columns:
+            print("no formulas found")
         return 0
 
     if not result.ir.tables:
