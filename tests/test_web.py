@@ -41,6 +41,37 @@ def test_unknown_job(client: FlaskClient) -> None:
     assert client.get("/api/jobs/../etc/status").status_code == 404
 
 
+def test_job_history(client: FlaskClient, clean_workbook: Path) -> None:
+    assert client.get("/jobs").status_code == 200
+    assert client.get("/api/jobs").get_json() == []
+
+    first = _upload(client, clean_workbook)
+    second = _upload(client, clean_workbook)
+    jobs = client.get("/api/jobs").get_json()
+    assert [j["job_id"] for j in jobs] == [second, first]
+    assert jobs[0]["state"] == "analyzed" and jobs[0]["created_at"]
+    assert jobs[0]["files"] == ["clean.xlsx"]
+    assert jobs[0]["tables"] == ["customers", "orders", "order_items"]
+    assert jobs[0]["targets"] == []
+
+    schema = client.get(f"/api/jobs/{second}/schema").get_json()
+    schema["tables"][0]["name"] = "customer"
+    assert client.put(f"/api/jobs/{second}/schema", json=schema).status_code == 200
+    res = client.post(f"/api/jobs/{second}/migrate", json={"targets": ["sqlite"]})
+    assert res.status_code == 202
+    jobs = client.get("/api/jobs").get_json()
+    assert jobs[0]["tables"][0] == "customer"
+    assert jobs[0]["state"] == "done" and jobs[0]["targets"] == ["sqlite"]
+
+    assert client.delete(f"/api/jobs/{first}").status_code == 204
+    assert client.delete(f"/api/jobs/{first}").status_code == 404
+    assert client.delete("/api/jobs/../etc").status_code == 404
+    for bad in ("%2e", "%2e%2e", ".", "..", "%2e%2e%2fjobs"):
+        assert client.delete(f"/api/jobs/{bad}").status_code in (404, 405)
+        assert client.get(f"/api/jobs/{bad}/status").status_code == 404
+    assert [j["job_id"] for j in client.get("/api/jobs").get_json()] == [second]
+
+
 def test_full_web_flow(client: FlaskClient, clean_workbook: Path, tmp_path: Path) -> None:
     job_id = _upload(client, clean_workbook)
 

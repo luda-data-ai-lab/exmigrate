@@ -30,8 +30,9 @@ python -m exmigrate.web.app        # http://127.0.0.1:5000
 
 Upload → review (rename tables/columns, change types, confirm PK/FK, view the
 ERD tab) → choose targets → report with artifact downloads. Job state lives
-under `./jobs/` (override with `EXMIGRATE_JOBS_DIR`). The REST API is described
-in `exmigrate/contracts/openapi.yaml`.
+under `./jobs/` (override with `EXMIGRATE_JOBS_DIR`); the **History** page
+(`/jobs`) lists past jobs so you can reopen their review/report or delete them.
+The REST API is described in `exmigrate/contracts/openapi.yaml`.
 
 ## Key inference
 

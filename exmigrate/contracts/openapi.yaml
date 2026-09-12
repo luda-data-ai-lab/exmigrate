@@ -32,6 +32,34 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/Issue" }
         "400": { description: No valid .xlsx files supplied }
+  /api/jobs:
+    get:
+      summary: List all jobs, newest first
+      responses:
+        "200":
+          description: Job summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    job_id: { type: string }
+                    state: { type: string, enum: [analyzed, migrating, done, failed] }
+                    created_at: { type: string, format: date-time, nullable: true }
+                    files: { type: array, items: { type: string } }
+                    tables: { type: array, items: { type: string } }
+                    targets: { type: array, items: { type: string } }
+                    error: { type: string, nullable: true }
+  /api/jobs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    delete:
+      summary: Delete a job and all of its files
+      responses:
+        "204": { description: Deleted }
+        "404": { description: Unknown job }
   /api/jobs/{id}/schema:
     parameters:
       - $ref: "#/components/parameters/JobId"
