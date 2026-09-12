@@ -5,7 +5,7 @@ from pathlib import Path
 from openpyxl import Workbook
 
 from exmigrate.analyzer import analyze, analyze_with_data, bind_data
-from exmigrate.analyzer.formulas import SheetRef, _lookup_edge, _split_args
+from exmigrate.analyzer.formulas import SheetRef, _lookup_edge, _split_args, function_names
 from exmigrate.analyzer.naming import dedupe, to_identifier
 from exmigrate.contracts.ir import ColumnType
 
@@ -91,6 +91,30 @@ def test_fk_from_values_and_name_without_formulas(tmp_path: Path) -> None:
     fk = ir.table("store").column("region_code").fk
     assert fk is not None and (fk.table, fk.confidence) == ("region", 0.9)
     assert ir.table("store").column("size").fk is None
+
+
+def test_function_names() -> None:
+    assert function_names("=_xlfn.XLOOKUP(B2,Orders!$A$2:$A$61,Orders!$D$2:$D$61)") == ["XLOOKUP"]
+    assert function_names('=SUM(A1:A3)+if(B1>0,ROUND(B1,2),"x(")') == ["SUM", "IF", "ROUND"]
+    assert function_names("='My Sheet'!A2*Sheet1!B2") == []
+
+
+def test_formula_inventory(clean_workbook: Path) -> None:
+    inv = analyze_with_data([clean_workbook]).formulas
+    assert [(c.sheet, c.column) for c in inv.columns] == [
+        ("Orders", "customer_name"),
+        ("Order Items", "line_total"),
+        ("Order Items", "order_status"),
+    ]
+    name, total, status = inv.columns
+    assert name.functions == {"VLOOKUP": 60} and name.references == ["Customers"]
+    assert name.formula_cells == name.row_count == 60 and name.derived
+    assert total.functions == {} and total.references == [] and total.sample == "=D2*E2"
+    assert status.functions == {"XLOOKUP": 150} and status.references == ["Orders"]
+    assert status.sample.startswith("=_xlfn.XLOOKUP(B2,")
+    assert inv.function_totals() == {"XLOOKUP": 150, "VLOOKUP": 60}
+    assert list(inv.by_file()) == [clean_workbook.name]
+    assert analyze_with_data([clean_workbook], infer_keys=False).formulas.columns == []
 
 
 def test_formula_helpers() -> None:

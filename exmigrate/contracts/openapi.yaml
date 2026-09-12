@@ -99,6 +99,36 @@ paths:
             text/plain:
               schema: { type: string }
         "404": { description: Unknown job }
+  /api/jobs/{id}/formulas:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      summary: Formula inventory (functions used per workbook column)
+      responses:
+        "200":
+          description: Inventory grouped by uploaded file
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  functions:
+                    type: object
+                    additionalProperties: { type: integer }
+                    description: Function name → call count across all files
+                  files:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        file: { type: string }
+                        functions:
+                          type: object
+                          additionalProperties: { type: integer }
+                        columns:
+                          type: array
+                          items: { $ref: "#/components/schemas/FormulaColumn" }
+        "404": { description: Unknown job }
   /api/jobs/{id}/migrate:
     parameters:
       - $ref: "#/components/parameters/JobId"
@@ -166,6 +196,25 @@ components:
       required: true
       schema: { type: string }
   schemas:
+    FormulaColumn:
+      type: object
+      properties:
+        file: { type: string }
+        sheet: { type: string }
+        table: { type: string }
+        column: { type: string }
+        formula_cells: { type: integer }
+        row_count: { type: integer }
+        derived: { type: boolean }
+        functions:
+          type: object
+          additionalProperties: { type: integer }
+          description: Function name (“_xlfn.” prefix stripped) → call count in this column
+        references:
+          type: array
+          items: { type: string }
+          description: Other sheets of the same workbook referenced by the formulas
+        sample: { type: string }
     Issue:
       type: object
       required: [severity, code, message]

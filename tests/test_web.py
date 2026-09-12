@@ -39,6 +39,26 @@ def test_unknown_job(client: FlaskClient) -> None:
     assert client.get("/api/jobs/nope/schema").status_code == 404
     assert client.get("/api/jobs/nope/status").status_code == 404
     assert client.get("/api/jobs/../etc/status").status_code == 404
+    assert client.get("/api/jobs/nope/formulas").status_code == 404
+
+
+def test_formulas_endpoint(client: FlaskClient, clean_workbook: Path) -> None:
+    job_id = _upload(client, clean_workbook)
+    assert b"Formulas" in client.get(f"/jobs/{job_id}/review").data
+    body = client.get(f"/api/jobs/{job_id}/formulas").get_json()
+    assert body["functions"] == {"XLOOKUP": 150, "VLOOKUP": 60}
+    assert len(body["files"]) == 1
+    file = body["files"][0]
+    assert file["file"] == clean_workbook.name and file["functions"] == body["functions"]
+    cols = {(c["sheet"], c["column"]): c for c in file["columns"]}
+    name = cols[("Orders", "customer_name")]
+    assert name["functions"] == {"VLOOKUP": 60} and name["references"] == ["Customers"]
+    assert name["derived"] is True and name["formula_cells"] == 60
+    assert cols[("Order Items", "line_total")]["sample"] == "=D2*E2"
+
+    # jobs created before the inventory existed report an empty list
+    (client.application.extensions["job_store"].path(job_id) / "formulas.json").unlink()
+    assert client.get(f"/api/jobs/{job_id}/formulas").get_json() == {"functions": {}, "files": []}
 
 
 def test_job_history(client: FlaskClient, clean_workbook: Path) -> None:

@@ -22,6 +22,17 @@ def test_cli_erd(clean_workbook: Path, capsys: pytest.CaptureFixture[str]) -> No
     assert "orders }o--|| customers" in out
 
 
+def test_cli_formulas(clean_workbook: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["formulas", str(clean_workbook)]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith(f"== {clean_workbook.name}: XLOOKUP x150, VLOOKUP x60\n")
+    assert "Orders!customer_name" in out and "-> Customers" in out
+
+    assert main(["formulas", str(clean_workbook), "--json"]) == 0
+    inv = json.loads(capsys.readouterr().out)
+    assert [c["column"] for c in inv["columns"]] == ["customer_name", "line_total", "order_status"]
+
+
 def test_cli_migrate_sqlite_and_dump(
     clean_workbook: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

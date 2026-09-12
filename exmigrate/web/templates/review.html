@@ -6,6 +6,7 @@
 <ul class="nav nav-tabs mb-3" role="tablist">
   <li class="nav-item"><button class="nav-link active" id="tab-tables" data-bs-toggle="tab" data-bs-target="#pane-tables" type="button" role="tab">Tables</button></li>
   <li class="nav-item"><button class="nav-link" id="tab-erd" data-bs-toggle="tab" data-bs-target="#pane-erd" type="button" role="tab">ERD</button></li>
+  <li class="nav-item"><button class="nav-link" id="tab-formulas" data-bs-toggle="tab" data-bs-target="#pane-formulas" type="button" role="tab">Formulas</button></li>
 </ul>
 <div class="tab-content">
   <div class="tab-pane fade show active" id="pane-tables" role="tabpanel">
@@ -15,6 +16,10 @@
     <p class="text-muted small">Dashed edges are tentative (confidence &lt; 0.9). The diagram reflects the saved schema.</p>
     <div id="erd" class="border rounded p-3 bg-white overflow-auto"></div>
     <details class="mt-2"><summary class="small text-muted">Mermaid source</summary><pre id="erd-src" class="small mb-0"></pre></details>
+  </div>
+  <div class="tab-pane fade" id="pane-formulas" role="tabpanel">
+    <p class="text-muted small">Functions used in each uploaded workbook, listed per sheet column. Counts are formula cells below the header row.</p>
+    <div id="formulas"></div>
   </div>
 </div>
 <div class="d-flex gap-2 mt-3">
@@ -200,6 +205,48 @@ window.ExM.renderMermaid = async (el, src) => {
       .catch(e => ExM.showError(err, e)));
   document.getElementById("tab-erd").addEventListener("shown.bs.tab", () =>
     showErd().catch(e => ExM.showError(err, e)));
+
+  const esc = ExM.esc;
+  const funcBadges = (fns) => Object.entries(fns)
+    .map(([n, c]) => `<span class="badge text-bg-secondary me-1">${esc(n)} <span class="opacity-75">×${c}</span></span>`)
+    .join("") || `<span class="text-muted small">no function calls (plain references / arithmetic)</span>`;
+  let formulasLoaded = false;
+  const showFormulas = async () => {
+    if (formulasLoaded) return;
+    const res = await fetch(`/api/jobs/${jobId}/formulas`);
+    if (!res.ok) throw new Error(`Formulas request failed (${res.status})`);
+    const inv = await res.json();
+    const box = document.getElementById("formulas");
+    if (!inv.files.length) {
+      box.innerHTML = `<div class="alert alert-light border">No formulas found in the uploaded workbooks.</div>`;
+      formulasLoaded = true; return;
+    }
+    box.innerHTML = inv.files.map(f => `
+      <div class="card mb-3">
+        <div class="card-header d-flex flex-wrap align-items-center gap-2">
+          <span class="fw-semibold">${esc(f.file)}</span>
+          <span class="text-muted small">${f.columns.length} formula column(s)</span>
+          <span class="ms-auto">${funcBadges(f.functions)}</span>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm mb-0 align-middle">
+            <thead><tr><th>Sheet</th><th>Column</th><th>Functions</th><th class="text-end">Cells</th><th>References</th><th>Sample</th></tr></thead>
+            <tbody>${f.columns.map(c => `
+              <tr>
+                <td>${esc(c.sheet)}<div class="text-muted small">${esc(c.table)}</div></td>
+                <td>${esc(c.column)}${c.derived ? ' <span class="badge text-bg-info">derived</span>' : ""}</td>
+                <td>${funcBadges(c.functions)}</td>
+                <td class="text-end">${c.formula_cells} / ${c.row_count}</td>
+                <td>${c.references.map(esc).join(", ") || '<span class="text-muted">—</span>'}</td>
+                <td><code class="small">${esc(c.sample)}</code></td>
+              </tr>`).join("")}</tbody>
+          </table>
+        </div>
+      </div>`).join("");
+    formulasLoaded = true;
+  };
+  document.getElementById("tab-formulas").addEventListener("shown.bs.tab", () =>
+    showFormulas().catch(e => ExM.showError(err, e)));
 
   Promise.all([
     fetch(`/api/jobs/${jobId}/schema`).then(r => r.json()),
