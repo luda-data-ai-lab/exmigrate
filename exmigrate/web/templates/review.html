@@ -8,6 +8,7 @@
   <li class="nav-item"><button class="nav-link" id="tab-erd" data-bs-toggle="tab" data-bs-target="#pane-erd" type="button" role="tab">ERD</button></li>
   <li class="nav-item"><button class="nav-link" id="tab-formulas" data-bs-toggle="tab" data-bs-target="#pane-formulas" type="button" role="tab">Formulas</button></li>
   <li class="nav-item"><button class="nav-link" id="tab-lineage" data-bs-toggle="tab" data-bs-target="#pane-lineage" type="button" role="tab">Data flow</button></li>
+  <li class="nav-item"><button class="nav-link" id="tab-recompute" data-bs-toggle="tab" data-bs-target="#pane-recompute" type="button" role="tab">Recompute</button></li>
 </ul>
 <div class="tab-content">
   <div class="tab-pane fade show active" id="pane-tables" role="tabpanel">
@@ -37,6 +38,16 @@
     <div id="lineage-summary" class="small text-muted mb-2"></div>
     <div id="lineage" class="border rounded p-3 bg-white overflow-auto"></div>
     <details class="mt-2"><summary class="small text-muted">Mermaid source</summary><pre id="lineage-src" class="small mb-0"></pre></details>
+  </div>
+  <div class="tab-pane fade" id="pane-recompute" role="tabpanel">
+    <p class="text-muted small">Formula columns converted to SQL and pandas, based on the saved schema. Migration creates a <code>&lt;table&gt;_v</code> view per table: excluded columns are recomputed under their own name, included ones get a <code>_calc</code> twin next to the cached Excel value. <code>INDIRECT</code>/<code>OFFSET</code> and other unsupported parts become <code>NULL</code> with a <code>TODO</code> note.</p>
+    <div id="recompute-summary" class="small text-muted mb-2"></div>
+    <div id="recompute"></div>
+    <div class="d-flex flex-wrap gap-2 mt-2">
+      <a id="recompute-sqlite" class="btn btn-sm btn-outline-secondary" target="_blank">SQLite views</a>
+      <a id="recompute-postgres" class="btn btn-sm btn-outline-secondary" target="_blank">PostgreSQL views</a>
+      <a id="recompute-pandas" class="btn btn-sm btn-outline-secondary" target="_blank">pandas script</a>
+    </div>
   </div>
 </div>
 <div class="d-flex gap-2 mt-3">
@@ -299,6 +310,44 @@ window.ExM.renderMermaid = async (el, src) => {
     showLineage().catch(e => ExM.showError(err, e)));
   document.querySelectorAll('input[name="lineage-level"]').forEach(el =>
     el.addEventListener("change", () => showLineage().catch(e => ExM.showError(err, e))));
+
+  const statusBadge = (s) => {
+    const cls = { ok: "text-bg-success", partial: "text-bg-warning", unsupported: "text-bg-danger" }[s] || "text-bg-secondary";
+    return `<span class="badge ${cls}">${esc(s)}</span>`;
+  };
+  const showRecompute = async () => {
+    err.classList.add("d-none");
+    const res = await fetch(`/api/jobs/${jobId}/translation`);
+    if (!res.ok) throw new Error(`Translation request failed (${res.status})`);
+    const tr = await res.json();
+    const box = document.getElementById("recompute");
+    const summary = document.getElementById("recompute-summary");
+    ["sqlite", "postgres", "pandas"].forEach(f =>
+      document.getElementById(`recompute-${f}`).href = `/api/jobs/${jobId}/translation?format=${f}`);
+    if (!tr.columns.length) {
+      summary.textContent = "";
+      box.innerHTML = `<div class="alert alert-light border mb-0">No formula columns to convert.</div>`;
+      return;
+    }
+    const c = tr.counts;
+    summary.textContent = `${tr.columns.length} formula column(s): ${c.ok} ok, ${c.partial} partial, ${c.unsupported} unsupported`;
+    box.innerHTML = `
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead><tr><th>Column</th><th>Status</th><th>Formula</th><th>SQL (SQLite)</th><th>pandas</th></tr></thead>
+          <tbody>${tr.columns.map(col => `
+            <tr>
+              <td class="text-nowrap">${esc(col.table)}.<b>${esc(col.column)}</b><div class="small text-muted">${col.include ? "included → " + esc(col.column) + "_calc" : "excluded → recomputed"}</div></td>
+              <td>${statusBadge(col.status)}</td>
+              <td><code class="small">${esc(col.formula)}</code>${col.notes.map(n => `<div class="small text-warning-emphasis">${esc(n)}</div>`).join("")}</td>
+              <td><pre class="small mb-0">${esc(col.sql.sqlite)}</pre></td>
+              <td><pre class="small mb-0">${esc(col.pandas)}</pre></td>
+            </tr>`).join("")}</tbody>
+        </table>
+      </div>`;
+  };
+  document.getElementById("tab-recompute").addEventListener("shown.bs.tab", () =>
+    showRecompute().catch(e => ExM.showError(err, e)));
 
   Promise.all([
     fetch(`/api/jobs/${jobId}/schema`).then(r => r.json()),

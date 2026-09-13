@@ -129,7 +129,7 @@ class PostgresAdapter:
 
     def _migrate_live(self, ir: SchemaIR, data: TableData, issues: list[Issue]) -> MigrationReport:
         assert self.dsn is not None
-        engine = sa.create_engine(_sqlalchemy_url(self.dsn))
+        engine = sa.create_engine(sqlalchemy_url(self.dsn))
         schema = plan_schema(ir)
         metadata = build_metadata(ir, schema.inline_edges())
         dialect = _pg_dialect()
@@ -240,7 +240,7 @@ def _strategy(table: TableIR) -> str:
     return f"INSERT (batch {BATCH_SIZE})"
 
 
-def _sqlalchemy_url(dsn: str) -> str:
+def sqlalchemy_url(dsn: str) -> str:
     if dsn.startswith("postgresql+"):
         return dsn
     if dsn.startswith("postgres://"):

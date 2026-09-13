@@ -133,8 +133,8 @@ def test_full_web_flow(client: FlaskClient, clean_workbook: Path, tmp_path: Path
         "orders": 60,
         "order_items": 150,
     }
-    assert sqlite_report["artifacts"] == ["migration.db"]
-    assert pg_report["artifacts"] == ["migration.sql"]
+    assert sqlite_report["artifacts"] == ["migration.db", "recompute_sqlite.sql", "recompute.py"]
+    assert pg_report["artifacts"] == ["migration.sql", "recompute_postgres.sql", "recompute.py"]
 
     res = client.get(f"/api/jobs/{job_id}/artifacts/migration.db")
     assert res.status_code == 200

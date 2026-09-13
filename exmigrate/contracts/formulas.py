@@ -12,6 +12,7 @@ class FormulaColumn(BaseModel):
     sheet: str
     table: str
     column: str
+    column_index: int | None = None
     formula_cells: int
     row_count: int
     derived: bool
@@ -24,6 +25,8 @@ class FormulaInventory(BaseModel):
     """All formula columns found across the analyzed workbooks."""
 
     columns: list[FormulaColumn] = Field(default_factory=list)
+    books: dict[str, list[str]] = Field(default_factory=dict)
+    """Per workbook, the external link targets in ``[1]``, ``[2]``… order."""
 
     def by_file(self) -> dict[str, list[FormulaColumn]]:
         """Group columns by source workbook, preserving order."""

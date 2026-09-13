@@ -94,7 +94,14 @@ class SheetFormulas:
 
 
 def scan_formulas(path: str | Path, header_rows: dict[str, int]) -> dict[str, SheetFormulas]:
-    """Collect formula facts per sheet.
+    """Collect formula facts per sheet (see :func:`scan_workbook`)."""
+    return scan_workbook(path, header_rows)[0]
+
+
+def scan_workbook(
+    path: str | Path, header_rows: dict[str, int]
+) -> tuple[dict[str, SheetFormulas], list[str]]:
+    """Collect formula facts per sheet plus the workbook's external link names.
 
     ``header_rows`` maps sheet title → 1-based header row; rows at or above the
     header are ignored. Sheets missing from the mapping are skipped.
@@ -122,7 +129,7 @@ def scan_formulas(path: str | Path, header_rows: dict[str, int]) -> dict[str, Sh
             out[ws.title] = facts
     finally:
         wb.close()
-    return out
+    return out, books
 
 
 def external_books(wb: Workbook) -> list[str]:
