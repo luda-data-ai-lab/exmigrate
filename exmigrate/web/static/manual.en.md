@@ -50,7 +50,7 @@ Environment variables
 Top menu: **Upload** · **History** · **Manual**
 
 ### 2.1 Upload
-Drag and drop or select `.xlsx` files. Workbooks that reference each other must be uploaded **together in one job** so cross-file FKs and data flow are connected. Non-ASCII (e.g. Korean) file names are preserved.
+Drag and drop `.xlsx` files or pick them with the **Choose files…** button (you can add more than once; the count is shown as "N files selected"). Workbooks that reference each other must be uploaded **together in one job** so cross-file FKs and data flow are connected. Non-ASCII (e.g. Korean) file names are preserved.
 
 ### 2.2 Review
 Inspect and edit the automatic analysis. Press **Save** so the changes are picked up by the following steps (ERD, Recompute, migration).
