@@ -5,7 +5,9 @@
 <div id="dropzone" class="dropzone border rounded p-5 text-center">
   <p class="mb-2">Drag &amp; drop files here</p>
   <p class="text-muted small mb-3">or</p>
-  <input id="file-input" type="file" accept=".xlsx,.xlsm" multiple class="form-control w-auto mx-auto">
+  <input id="file-input" type="file" accept=".xlsx,.xlsm" multiple class="d-none">
+  <label for="file-input" class="btn btn-outline-primary mb-0">Choose files…</label>
+  <span id="file-count" class="text-muted small ms-2">No files selected</span>
 </div>
 <ul id="file-list" class="list-group my-3"></ul>
 <button id="upload-btn" class="btn btn-primary" disabled>Analyze</button>
@@ -19,6 +21,7 @@
   const list = document.getElementById("file-list");
   const btn = document.getElementById("upload-btn");
   const err = document.getElementById("error");
+  const count = document.getElementById("file-count");
   let files = [];
 
   const render = () => {
@@ -34,6 +37,8 @@
       list.appendChild(li);
     });
     btn.disabled = files.length === 0;
+    count.textContent = files.length === 0 ? "No files selected"
+      : `${files.length} file${files.length === 1 ? "" : "s"} selected`;
   };
   const add = (fl) => {
     const rejected = [];
