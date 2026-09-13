@@ -18,6 +18,10 @@ paths:
                   items:
                     type: string
                     format: binary
+                created_by:
+                  type: string
+                  maxLength: 80
+                  description: Optional operator name recorded on the job (shown in History)
       responses:
         "201":
           description: Job created
@@ -48,6 +52,7 @@ paths:
                     job_id: { type: string }
                     state: { type: string, enum: [analyzed, migrating, done, failed] }
                     created_at: { type: string, format: date-time, nullable: true }
+                    created_by: { type: string, nullable: true }
                     files: { type: array, items: { type: string } }
                     tables: { type: array, items: { type: string } }
                     targets: { type: array, items: { type: string } }
@@ -407,6 +412,7 @@ components:
       properties:
         job_id: { type: string }
         state: { type: string, enum: [analyzed, migrating, done, failed] }
+        created_by: { type: string, nullable: true }
         files:
           type: array
           items: { type: string }

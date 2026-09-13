@@ -3,11 +3,17 @@
 <h1 class="h3 mb-3">Job history</h1>
 <p class="text-muted">Every upload is kept as a job. Reopen one to review its schema or download artifacts again.</p>
 <div id="error" class="alert alert-danger d-none"></div>
+<div class="mb-3" style="max-width: 20rem">
+  <select id="user-filter" class="form-select form-select-sm d-none">
+    <option value="">All users</option>
+  </select>
+</div>
 <p id="empty" class="text-muted d-none">No jobs yet. <a href="/">Upload a workbook</a> to start.</p>
 <table id="jobs" class="table table-sm align-middle d-none">
   <thead>
     <tr>
       <th>Created</th>
+      <th>User</th>
       <th>Files</th>
       <th>Tables</th>
       <th>State</th>
@@ -25,6 +31,8 @@
   const tbody = table.querySelector("tbody");
   const empty = document.getElementById("empty");
   const err = document.getElementById("error");
+  const filter = document.getElementById("user-filter");
+  let all = [];
   const badge = { analyzed: "secondary", migrating: "info", done: "success", failed: "danger" };
 
   const cell = (parent, text, cls) => {
@@ -40,10 +48,19 @@
     parent.appendChild(a);
   };
 
-  const render = (jobs) => {
+  const renderFilter = () => {
+    const users = [...new Set(all.map(j => j.created_by).filter(Boolean))].sort();
+    const current = filter.value;
+    filter.innerHTML = '<option value="">All users</option>';
+    users.forEach(u => { const o = document.createElement("option"); o.value = u; o.textContent = u; filter.appendChild(o); });
+    filter.value = users.includes(current) ? current : "";
+    filter.classList.toggle("d-none", users.length === 0);
+  };
+  const render = () => {
+    const jobs = filter.value ? all.filter(j => j.created_by === filter.value) : all;
     tbody.innerHTML = "";
     table.classList.toggle("d-none", jobs.length === 0);
-    empty.classList.toggle("d-none", jobs.length > 0);
+    empty.classList.toggle("d-none", jobs.length > 0 || all.length > 0);
     jobs.forEach(j => {
       const tr = document.createElement("tr");
       const created = j.created_at ? new Date(j.created_at).toLocaleString() : "—";
@@ -51,6 +68,7 @@
       const id = document.createElement("div");
       id.className = "text-muted small font-monospace"; id.textContent = j.job_id;
       when.appendChild(id);
+      cell(tr, j.created_by || "—");
       cell(tr, j.files.join(", "));
       cell(tr, j.tables.length ? `${j.tables.length}: ${j.tables.join(", ")}` : "—", "small");
       const state = cell(tr, "");
@@ -81,9 +99,12 @@
     try {
       const res = await fetch("/api/jobs");
       if (!res.ok) throw new Error(res.statusText);
-      render(await res.json());
+      all = await res.json();
+      renderFilter();
+      render();
     } catch (e) { showError(`Could not load jobs: ${e.message}`); }
   };
+  filter.addEventListener("change", render);
   load();
 })();
 </script>

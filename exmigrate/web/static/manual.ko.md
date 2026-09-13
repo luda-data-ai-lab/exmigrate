@@ -50,6 +50,8 @@ python -m fixtures.cross_file out/                 # 4개 파일: customers, pro
 상단 메뉴: **Upload** · **History** · **Manual**
 
 ### 2.1 Upload
+**Your name** 입력칸에 작업자 이름을 적으면 job에 `created_by`로 기록되어 History에서 누가 올렸는지 구별할 수 있습니다(로그인 없음, 브라우저에 기억되어 다음부터 자동 입력). 선택 사항입니다.
+
 `.xlsx` 파일을 드래그하거나 **Choose files…** 버튼으로 선택합니다(여러 번 추가 가능, 선택 개수는 옆에 "N files selected"로 표시). 서로 참조하는 워크북은 **한 번에 함께** 올려야 파일 간 FK와 데이터 흐름이 연결됩니다. 한글 파일명도 그대로 유지됩니다.
 
 ### 2.2 Review (검토)
@@ -104,7 +106,7 @@ FK 신뢰도 기준: 파일 간 lookup 0.99 · lookup+이름+값 0.98 · lookup 
 | `recompute.py` | 동일 로직의 pandas 스크립트 |
 
 ### 2.5 History
-지난 작업 목록(시간·파일·테이블·상태·타깃). Review/Report 다시 열기, 삭제.
+지난 작업 목록(시간·작업자(User)·파일·테이블·상태·타깃). 작업자 이름이 하나라도 있으면 상단 드롭다운으로 사용자별 필터 가능. Review/Report 다시 열기, 삭제.
 
 ---
 
@@ -179,7 +181,7 @@ exmigrate migrate book.xlsx --target sqlite --json                       # 리�
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| POST | `/upload` | multipart `files` 업로드 → `201 {job_id}` |
+| POST | `/upload` | multipart `files` (+ 선택 `created_by`) 업로드 → `201 {job_id}` |
 | GET | `/jobs` | 작업 목록 |
 | DELETE | `/jobs/{id}` | 작업 삭제 |
 | GET / PUT | `/jobs/{id}/schema` | Schema IR 조회 / 저장 |

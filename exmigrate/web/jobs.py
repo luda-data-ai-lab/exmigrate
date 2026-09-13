@@ -28,6 +28,7 @@ class JobStatus(BaseModel):
     job_id: str
     state: JobState = "analyzed"
     created_at: datetime | None = None
+    created_by: str | None = None
     files: list[str] = Field(default_factory=list)
     tables: list[str] = Field(default_factory=list)
     issues: list[Issue] = Field(default_factory=list)
