@@ -7,3 +7,9 @@
   background: #e7f1ff;
   border-color: #0d6efd !important;
 }
+
+.manual h1 { font-size: 1.75rem; margin-bottom: 1rem; }
+.manual h2 { font-size: 1.35rem; margin-top: 2rem; padding-top: .5rem; border-top: 1px solid #dee2e6; }
+.manual h3 { font-size: 1.1rem; margin-top: 1.5rem; }
+.manual pre { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: .25rem; padding: .75rem; }
+.manual blockquote { border-left: 4px solid #adb5bd; padding-left: 1rem; color: #6c757d; }
