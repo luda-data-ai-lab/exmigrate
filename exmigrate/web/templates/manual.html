@@ -2,7 +2,15 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h1 class="h3 mb-0">Manual</h1>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('static', filename='manual.md') }}" download>Download .md</a>
+  <div class="d-flex gap-2">
+    <div class="btn-group btn-group-sm" role="group" aria-label="Language">
+      {% for code, label in languages.items() %}
+      <a class="btn btn-outline-primary{% if code == lang %} active{% endif %}"
+         href="{{ url_for('pages.manual_page', lang=code) }}">{{ label }}</a>
+      {% endfor %}
+    </div>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('static', filename=manual_file) }}" download>Download .md</a>
+  </div>
 </div>
 <div class="row">
   <nav class="col-md-3 d-none d-md-block">
@@ -19,9 +27,9 @@
 <script>
 (async () => {
   const article = document.getElementById("manual");
-  const res = await fetch("{{ url_for('static', filename='manual.md') }}");
+  const res = await fetch("{{ url_for('static', filename=manual_file) }}");
   if (!res.ok) {
-    article.innerHTML = '<div class="alert alert-danger">manual.md could not be loaded.</div>';
+    article.innerHTML = '<div class="alert alert-danger">{{ manual_file }} could not be loaded.</div>';
     return;
   }
   const html = marked.parse(await res.text(), { gfm: true });

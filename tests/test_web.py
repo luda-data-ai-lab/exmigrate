@@ -63,9 +63,13 @@ def test_formulas_endpoint(client: FlaskClient, clean_workbook: Path) -> None:
 
 def test_manual_page(client: FlaskClient) -> None:
     page = client.get("/manual")
-    assert page.status_code == 200 and b"manual.md" in page.data
-    md = client.get("/static/manual.md")
-    assert md.status_code == 200 and md.data.startswith(b"# ExMigrate")
+    assert page.status_code == 200 and b"manual.ko.md" in page.data
+    en = client.get("/manual?lang=en")
+    assert en.status_code == 200 and b"manual.en.md" in en.data
+    assert client.get("/manual?lang=xx").status_code == 404
+    for name in ("manual.ko.md", "manual.en.md"):
+        md = client.get(f"/static/{name}")
+        assert md.status_code == 200 and md.data.startswith(b"# ExMigrate")
 
 
 def test_job_history(client: FlaskClient, clean_workbook: Path) -> None:
