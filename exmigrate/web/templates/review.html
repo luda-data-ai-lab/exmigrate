@@ -288,7 +288,7 @@ window.ExM.renderMermaid = async (el, src) => {
     }
     const ops = {};
     lineage.edges.forEach(e => { ops[e.op] = (ops[e.op] || 0) + e.formula_count; });
-    const missing = lineage.nodes.filter(n => n.missing).length;
+    const missing = new Set(lineage.nodes.filter(n => n.missing).map(n => n.file)).size;
     summary.textContent = `${lineage.nodes.length} ${level} node(s), ${lineage.edges.length} edge(s): `
       + Object.entries(ops).map(([op, n]) => `${op} ×${n}`).join(", ")
       + (missing ? ` · ${missing} referenced workbook(s) not uploaded` : "");
