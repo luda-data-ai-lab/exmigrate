@@ -74,6 +74,8 @@ def _column_line(col: ColumnIR) -> str:
     comments = []
     if col.derived:
         comments.append("derived")
+    if not col.include:
+        comments.append("excluded")
     if not col.nullable and not col.pk:
         comments.append("not null")
     if comments:

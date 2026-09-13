@@ -1,12 +1,13 @@
 {% extends "base.html" %}
 {% block content %}
 <h1 class="h3 mb-3">2. Review schema</h1>
-<p class="text-muted">Edit names and types, confirm the inferred primary/foreign keys, then check the ERD.</p>
+<p class="text-muted">Edit names and types, confirm the inferred primary/foreign keys, untick derived columns you do not want migrated, then check the ERD and data flow.</p>
 <div id="issues"></div>
 <ul class="nav nav-tabs mb-3" role="tablist">
   <li class="nav-item"><button class="nav-link active" id="tab-tables" data-bs-toggle="tab" data-bs-target="#pane-tables" type="button" role="tab">Tables</button></li>
   <li class="nav-item"><button class="nav-link" id="tab-erd" data-bs-toggle="tab" data-bs-target="#pane-erd" type="button" role="tab">ERD</button></li>
   <li class="nav-item"><button class="nav-link" id="tab-formulas" data-bs-toggle="tab" data-bs-target="#pane-formulas" type="button" role="tab">Formulas</button></li>
+  <li class="nav-item"><button class="nav-link" id="tab-lineage" data-bs-toggle="tab" data-bs-target="#pane-lineage" type="button" role="tab">Data flow</button></li>
 </ul>
 <div class="tab-content">
   <div class="tab-pane fade show active" id="pane-tables" role="tabpanel">
@@ -21,6 +22,22 @@
     <p class="text-muted small">Functions used in each uploaded workbook, listed per sheet column. Counts are formula cells below the header row.</p>
     <div id="formulas"></div>
   </div>
+  <div class="tab-pane fade" id="pane-lineage" role="tabpanel">
+    <div class="d-flex flex-wrap align-items-center gap-3 mb-2">
+      <div class="btn-group btn-group-sm" role="group" aria-label="Zoom level">
+        <input type="radio" class="btn-check" name="lineage-level" id="lineage-file" value="file" autocomplete="off">
+        <label class="btn btn-outline-secondary" for="lineage-file">Files</label>
+        <input type="radio" class="btn-check" name="lineage-level" id="lineage-sheet" value="sheet" autocomplete="off">
+        <label class="btn btn-outline-secondary" for="lineage-sheet">Sheets</label>
+        <input type="radio" class="btn-check" name="lineage-level" id="lineage-column" value="column" autocomplete="off" checked>
+        <label class="btn btn-outline-secondary" for="lineage-column">Columns</label>
+      </div>
+      <span class="text-muted small">Arrows point from source to formula column: <code>join</code> (VLOOKUP/XLOOKUP/INDEX-MATCH), <code>aggregate</code> (SUMIF/COUNTIF/AVERAGEIF), <code>calculate</code>, <code>copy</code>. Dashed grey nodes are workbooks that were referenced but not uploaded; <code>INDIRECT</code>/<code>OFFSET</code> sources are shown as an unresolved node.</span>
+    </div>
+    <div id="lineage-summary" class="small text-muted mb-2"></div>
+    <div id="lineage" class="border rounded p-3 bg-white overflow-auto"></div>
+    <details class="mt-2"><summary class="small text-muted">Mermaid source</summary><pre id="lineage-src" class="small mb-0"></pre></details>
+  </div>
 </div>
 <div class="d-flex gap-2 mt-3">
   <button id="save-btn" class="btn btn-outline-secondary">Save</button>
@@ -33,7 +50,7 @@
 import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
 mermaid.initialize({ startOnLoad: false, securityLevel: "strict" });
 window.ExM.renderMermaid = async (el, src) => {
-  const { svg } = await mermaid.render(`erd-${Date.now()}`, src);
+  const { svg } = await mermaid.render(`mmd-${Date.now()}`, src);
   el.innerHTML = svg;
 };
 </script>
@@ -89,7 +106,7 @@ window.ExM.renderMermaid = async (el, src) => {
         </div>
         <div class="card-body p-0">
           <table class="table table-sm mb-0 align-middle">
-            <thead><tr><th>Column</th><th>Source header</th><th>Type</th><th>Nullable</th><th>Null %</th><th>PK</th><th>FK →</th></tr></thead>
+            <thead><tr><th>Include</th><th>Column</th><th>Source header</th><th>Type</th><th>Nullable</th><th>Null %</th><th>PK</th><th>FK →</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>`;
@@ -99,6 +116,7 @@ window.ExM.renderMermaid = async (el, src) => {
       t.columns.forEach((c, ci) => {
         const tr = document.createElement("tr");
         tr.innerHTML = `
+          <td class="text-center"><input type="checkbox" class="form-check-input" data-col="${ti}:${ci}" data-field="include" title="Migrate this column"></td>
           <td><input class="form-control form-control-sm" data-col="${ti}:${ci}" data-field="name"></td>
           <td class="text-muted small"></td>
           <td><select class="form-select form-select-sm" data-col="${ti}:${ci}" data-field="type"></select></td>
@@ -106,14 +124,18 @@ window.ExM.renderMermaid = async (el, src) => {
           <td class="small"></td>
           <td class="text-center"><input type="checkbox" class="form-check-input" data-col="${ti}:${ci}" data-field="pk"></td>
           <td><div class="d-flex align-items-center gap-2"><select class="form-select form-select-sm" data-col="${ti}:${ci}" data-field="fk"></select><span class="small text-muted text-nowrap"></span></div></td>`;
+        const includeBox = tr.querySelector('[data-field="include"]');
+        includeBox.checked = c.include !== false;
+        includeBox.addEventListener("change", () => tr.classList.toggle("table-secondary", !includeBox.checked));
+        tr.classList.toggle("table-secondary", !includeBox.checked);
         tr.querySelector('[data-field="name"]').value = c.name;
-        tr.children[1].textContent = c.source_name || "(blank)";
+        tr.children[2].textContent = c.source_name || "(blank)";
         if (c.derived) {
           const badge = document.createElement("span");
           badge.className = "badge text-bg-info ms-1";
-          badge.title = "populated by formulas";
+          badge.title = "populated by formulas; untick Include to recompute it in the database instead";
           badge.textContent = "derived";
-          tr.children[1].appendChild(badge);
+          tr.children[2].appendChild(badge);
         }
         const sel = tr.querySelector('[data-field="type"]');
         TYPES.forEach(ty => {
@@ -122,7 +144,7 @@ window.ExM.renderMermaid = async (el, src) => {
           sel.appendChild(o);
         });
         tr.querySelector('[data-field="nullable"]').checked = c.nullable;
-        tr.children[4].textContent = (c.null_ratio * 100).toFixed(1);
+        tr.children[5].textContent = (c.null_ratio * 100).toFixed(1);
         tr.querySelector('[data-field="pk"]').checked = c.pk;
         const fkSel = tr.querySelector('[data-field="fk"]');
         const none = document.createElement("option");
@@ -141,7 +163,7 @@ window.ExM.renderMermaid = async (el, src) => {
           o.value = "__stale__"; o.textContent = `${c.fk.table}.${c.fk.column} (not a PK)`; o.selected = true;
           fkSel.appendChild(o);
         }
-        const conf = tr.children[6].querySelector("span");
+        const conf = tr.children[7].querySelector("span");
         if (c.fk) conf.textContent = c.fk.confidence < 1 ? `conf ${c.fk.confidence.toFixed(2)}` : "manual";
         fkSel.addEventListener("change", () => { conf.textContent = fkSel.value ? "manual" : ""; });
         tbody.appendChild(tr);
@@ -163,6 +185,7 @@ window.ExM.renderMermaid = async (el, src) => {
       else if (f === "type") col.type = el.value;
       else if (f === "nullable") col.nullable = el.checked;
       else if (f === "pk") col.pk = el.checked;
+      else if (f === "include") col.include = el.checked;
       else if (f === "fk") fkChoices.push({ col, value: el.value, same: el.value === el.dataset.current });
     });
     fkChoices.forEach(({ col, value, same }) => {
@@ -247,6 +270,35 @@ window.ExM.renderMermaid = async (el, src) => {
   };
   document.getElementById("tab-formulas").addEventListener("shown.bs.tab", () =>
     showFormulas().catch(e => ExM.showError(err, e)));
+
+  const lineageLevel = () => document.querySelector('input[name="lineage-level"]:checked').value;
+  const showLineage = async () => {
+    err.classList.add("d-none");
+    const level = lineageLevel();
+    const res = await fetch(`/api/jobs/${jobId}/lineage?level=${level}`);
+    if (!res.ok) throw new Error(`Lineage request failed (${res.status})`);
+    const lineage = await res.json();
+    const box = document.getElementById("lineage");
+    const summary = document.getElementById("lineage-summary");
+    document.getElementById("lineage-src").textContent = lineage.mermaid;
+    if (!lineage.edges.length) {
+      summary.textContent = "";
+      box.innerHTML = `<div class="alert alert-light border mb-0">No formula data flow found in the uploaded workbooks.</div>`;
+      return;
+    }
+    const ops = {};
+    lineage.edges.forEach(e => { ops[e.op] = (ops[e.op] || 0) + e.formula_count; });
+    const missing = lineage.nodes.filter(n => n.missing).length;
+    summary.textContent = `${lineage.nodes.length} ${level} node(s), ${lineage.edges.length} edge(s): `
+      + Object.entries(ops).map(([op, n]) => `${op} ×${n}`).join(", ")
+      + (missing ? ` · ${missing} referenced workbook(s) not uploaded` : "");
+    if (!ExM.renderMermaid) { box.textContent = lineage.mermaid; return; }
+    await ExM.renderMermaid(box, lineage.mermaid);
+  };
+  document.getElementById("tab-lineage").addEventListener("shown.bs.tab", () =>
+    showLineage().catch(e => ExM.showError(err, e)));
+  document.querySelectorAll('input[name="lineage-level"]').forEach(el =>
+    el.addEventListener("change", () => showLineage().catch(e => ExM.showError(err, e))));
 
   Promise.all([
     fetch(`/api/jobs/${jobId}/schema`).then(r => r.json()),

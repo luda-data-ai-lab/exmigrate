@@ -129,6 +129,24 @@ paths:
                           type: array
                           items: { $ref: "#/components/schemas/FormulaColumn" }
         "404": { description: Unknown job }
+  /api/jobs/{id}/lineage:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      summary: Formula data-flow (Lineage IR) at the requested zoom level
+      parameters:
+        - name: level
+          in: query
+          required: false
+          schema: { type: string, enum: [file, sheet, column, col], default: column }
+      responses:
+        "200":
+          description: Lineage nodes/edges plus a Mermaid flowchart rendering
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LineageIR" }
+        "400": { description: Invalid level }
+        "404": { description: Unknown job }
   /api/jobs/{id}/migrate:
     parameters:
       - $ref: "#/components/parameters/JobId"
@@ -213,7 +231,7 @@ components:
         references:
           type: array
           items: { type: string }
-          description: Other sheets of the same workbook referenced by the formulas
+          description: Sheets referenced by the formulas; external workbooks appear as "[book.xlsx]Sheet"
         sample: { type: string }
     Issue:
       type: object
@@ -242,8 +260,47 @@ components:
         pk: { type: boolean }
         fk: { $ref: "#/components/schemas/ForeignKey", nullable: true }
         derived: { type: boolean }
+        include:
+          type: boolean
+          default: true
+          description: When false the column is omitted from every migration target
         null_ratio: { type: number }
         max_length: { type: integer, nullable: true }
+    LineageNode:
+      type: object
+      required: [id, kind, label, file]
+      properties:
+        id: { type: string, example: "column:orders.xlsx/Orders/customer_id" }
+        kind: { type: string, enum: [file, sheet, column, dynamic_reference] }
+        label: { type: string }
+        file: { type: string }
+        sheet: { type: string, nullable: true }
+        column: { type: string, nullable: true }
+        missing:
+          type: boolean
+          description: Referenced workbook was not uploaded
+    LineageEdge:
+      type: object
+      required: [from, to, op]
+      properties:
+        from: { type: string }
+        to: { type: string }
+        op: { type: string, enum: [join, aggregate, calculate, copy, dynamic] }
+        formula_count: { type: integer }
+    LineageIR:
+      type: object
+      properties:
+        version: { type: integer }
+        level: { type: string, enum: [file, sheet, column] }
+        nodes:
+          type: array
+          items: { $ref: "#/components/schemas/LineageNode" }
+        edges:
+          type: array
+          items: { $ref: "#/components/schemas/LineageEdge" }
+        mermaid:
+          type: string
+          description: Mermaid flowchart source for the same graph
     Table:
       type: object
       required: [name, source_file, source_sheet, columns]

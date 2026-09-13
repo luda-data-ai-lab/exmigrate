@@ -10,6 +10,7 @@ from flask.testing import FlaskClient
 
 from exmigrate.web import create_app
 from fixtures.clean_three_table import generate as generate_clean
+from fixtures.cross_file import generate as generate_cross
 from fixtures.large_sheet import generate as generate_large
 
 
@@ -21,6 +22,11 @@ def clean_workbook(tmp_path_factory: pytest.TempPathFactory) -> Path:
 @pytest.fixture(scope="session")
 def large_workbook(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return generate_large(tmp_path_factory.mktemp("fx") / "large.xlsx")
+
+
+@pytest.fixture(scope="session")
+def cross_file_workbooks(tmp_path_factory: pytest.TempPathFactory) -> list[Path]:
+    return generate_cross(tmp_path_factory.mktemp("fx") / "cross")
 
 
 @pytest.fixture()

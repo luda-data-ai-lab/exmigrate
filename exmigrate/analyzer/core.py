@@ -1,8 +1,9 @@
 """Workbook reading and Schema IR construction.
 
 Pass 1 (``data_only=True``) yields values, types and tables; pass 2
-(``data_only=False``) marks formula-derived columns and collects same-file
-lookup evidence, which feeds PK/FK inference.
+(``data_only=False``) marks formula-derived columns, collects lookup evidence
+(same-file and across uploaded workbooks) for PK/FK inference and builds the
+column-level Lineage IR.
 """
 
 from __future__ import annotations
@@ -22,11 +23,13 @@ from exmigrate.analyzer.keys import (
     infer_primary_keys,
     table_by_sheet,
 )
+from exmigrate.analyzer.lineage import build_lineage
 from exmigrate.analyzer.naming import dedupe, to_identifier
 from exmigrate.analyzer.types import infer_column
 from exmigrate.contracts.adapter import Issue, IssueSeverity
 from exmigrate.contracts.formulas import FormulaColumn, FormulaInventory
 from exmigrate.contracts.ir import ColumnIR, SchemaIR, TableIR
+from exmigrate.contracts.lineage import LineageIR
 
 HEADER_MIN_STRING_RATIO = 0.8
 HEADER_SCAN_ROWS = 50
@@ -40,6 +43,7 @@ class AnalysisResult:
     frames: list[pd.DataFrame] = field(default_factory=list)
     issues: list[Issue] = field(default_factory=list)
     formulas: FormulaInventory = field(default_factory=FormulaInventory)
+    lineage: LineageIR = field(default_factory=LineageIR)
 
     def table_data(self) -> dict[str, pd.DataFrame]:
         """Bind frames to the (possibly edited) IR for adapters."""
@@ -95,11 +99,13 @@ def analyze_with_data(paths: Sequence[str | Path], *, infer_keys: bool = True) -
 
     ir = SchemaIR(version=1, tables=tables)
     inventory = FormulaInventory()
+    lineage = LineageIR()
     if infer_keys:
-        lookups = _apply_formulas(ir, frames, workbooks, issues, inventory)
+        lookups, facts = _apply_formulas(ir, frames, workbooks, issues, inventory)
         infer_primary_keys(ir, frames)
         infer_foreign_keys(ir, frames, lookups)
-    return AnalysisResult(ir=ir, frames=frames, issues=issues, formulas=inventory)
+        lineage = build_lineage(ir, facts)
+    return AnalysisResult(ir=ir, frames=frames, issues=issues, formulas=inventory, lineage=lineage)
 
 
 def _apply_formulas(
@@ -108,22 +114,78 @@ def _apply_formulas(
     workbooks: Sequence[Path],
     issues: list[Issue],
     inventory: FormulaInventory,
-) -> list[LookupEvidence]:
+) -> tuple[list[LookupEvidence], dict[str, dict[str, SheetFormulas]]]:
     """Run the formula pass, flag derived columns, fill the inventory and translate lookups."""
     evidence: list[LookupEvidence] = []
+    all_facts: dict[str, dict[str, SheetFormulas]] = {}
+    uploaded = {p.name for p in workbooks}
     for path in workbooks:
         header_rows = {
             t.source_sheet: t.header_row for t in ir.tables if t.source_file == path.name
         }
         facts = scan_formulas(path, header_rows)
+        all_facts[path.name] = facts
         for sheet, sheet_facts in facts.items():
             table = table_by_sheet(ir, path.name, sheet)
             if table is None:
                 continue
-            _mark_derived(table, sheet_facts, frames[ir.tables.index(table)], issues)
+            frame = frames[ir.tables.index(table)]
+            _mark_derived(table, sheet_facts, frame, issues)
+            _external_issues(table, sheet_facts, frame, uploaded, issues)
             inventory.columns.extend(_inventory(table, sheet_facts))
             evidence.extend(_lookup_evidence(ir, path.name, table, sheet_facts))
-    return evidence
+    return evidence, all_facts
+
+
+def _external_issues(
+    table: TableIR,
+    facts: SheetFormulas,
+    frame: pd.DataFrame,
+    uploaded: set[str],
+    issues: list[Issue],
+) -> None:
+    """Flag columns pulling from workbooks that were not uploaded and dynamic references."""
+    reported: set[str] = set()
+    for col_idx, refs in sorted(facts.references.items()):
+        if col_idx >= len(table.columns):
+            continue
+        column = table.columns[col_idx]
+        for book in sorted({r.book for r in refs if r.book and r.book not in uploaded}):
+            if book in reported:
+                continue
+            reported.add(book)
+            cached = len(frame) == 0 or column.null_ratio < 1.0
+            issues.append(
+                Issue(
+                    severity=IssueSeverity.INFO if cached else IssueSeverity.WARNING,
+                    code="missing_referenced_workbook",
+                    message=(
+                        f"missing referenced workbook: {book} "
+                        f"(referenced by {table.source_file}/{table.source_sheet} "
+                        f"column '{column.name}'"
+                        + ("; cached values are used)" if cached else "; no cached values)")
+                        + " — upload it alongside to resolve cross-file keys"
+                    ),
+                    table=table.name,
+                    column=column.name,
+                )
+            )
+    for col_idx, count in sorted(facts.dynamic.items()):
+        if col_idx >= len(table.columns):
+            continue
+        column = table.columns[col_idx]
+        issues.append(
+            Issue(
+                severity=IssueSeverity.INFO,
+                code="dynamic_reference",
+                message=(
+                    f"{table.source_file}/{table.source_sheet}: column '{column.name}' uses "
+                    f"INDIRECT/OFFSET in {count} cell(s); its sources cannot be tracked"
+                ),
+                table=table.name,
+                column=column.name,
+            )
+        )
 
 
 def _mark_derived(
@@ -167,7 +229,7 @@ def _inventory(table: TableIR, facts: SheetFormulas) -> list[FormulaColumn]:
                 row_count=table.row_count,
                 derived=col_idx in derived,
                 functions=dict(sorted(functions.items(), key=lambda kv: (-kv[1], kv[0]))),
-                references=sorted({r.sheet for r in facts.references.get(col_idx, set())}),
+                references=sorted({r.sheet_label for r in facts.references.get(col_idx, set())}),
                 sample=facts.samples.get(col_idx, ""),
             )
         )
@@ -179,7 +241,7 @@ def _lookup_evidence(
 ) -> list[LookupEvidence]:
     out: list[LookupEvidence] = []
     for edge in facts.lookups:
-        target = table_by_sheet(ir, file_name, edge.target.sheet)
+        target = table_by_sheet(ir, edge.target.book or file_name, edge.target.sheet)
         if target is None:
             continue
         if edge.lookup_column >= len(table.columns) or edge.target.column >= len(target.columns):
@@ -190,6 +252,7 @@ def _lookup_evidence(
                 column=table.columns[edge.lookup_column].name,
                 ref_table=target.name,
                 ref_column=target.columns[edge.target.column].name,
+                cross_file=edge.target.book is not None,
             )
         )
     return out
