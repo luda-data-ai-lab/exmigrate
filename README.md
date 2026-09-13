@@ -45,9 +45,9 @@ each formula column's SQL/pandas translation and TODOs) → choose targets →
 report with artifact downloads. Job state lives
 under `./jobs/` (override with `EXMIGRATE_JOBS_DIR`); the **History** page
 (`/jobs`) lists past jobs so you can reopen their review/report or delete them.
-The REST API is described in `exmigrate/contracts/openapi.yaml`. The Korean
-user manual (`exmigrate/web/static/manual.md`) is rendered in-app under
-**Manual** (`/manual`).
+The REST API is described in `exmigrate/contracts/openapi.yaml`. The user
+manual (`exmigrate/web/static/manual.ko.md`, `manual.en.md`) is rendered in-app
+under **Manual** (`/manual?lang=ko|en`).
 
 ## Key inference
 

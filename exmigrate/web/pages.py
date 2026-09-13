@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import cast
 
-from flask import Blueprint, abort, current_app, render_template
+from flask import Blueprint, abort, current_app, render_template, request
 
 from exmigrate.web.jobs import JobStore
 
@@ -29,10 +29,21 @@ def history_page() -> str:
     return render_template("history.html")
 
 
+MANUAL_LANGUAGES = {"ko": "한국어", "en": "English"}
+
+
 @pages_bp.get("/manual")
 def manual_page() -> str:
-    """User manual rendered from ``static/manual.md``."""
-    return render_template("manual.html")
+    """User manual rendered from ``static/manual.<lang>.md`` (``?lang=ko|en``)."""
+    lang = request.args.get("lang", "ko")
+    if lang not in MANUAL_LANGUAGES:
+        abort(404)
+    return render_template(
+        "manual.html",
+        lang=lang,
+        languages=MANUAL_LANGUAGES,
+        manual_file=f"manual.{lang}.md",
+    )
 
 
 @pages_bp.get("/jobs/<job_id>/review")
