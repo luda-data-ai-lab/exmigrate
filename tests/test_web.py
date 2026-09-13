@@ -61,6 +61,13 @@ def test_formulas_endpoint(client: FlaskClient, clean_workbook: Path) -> None:
     assert client.get(f"/api/jobs/{job_id}/formulas").get_json() == {"functions": {}, "files": []}
 
 
+def test_manual_page(client: FlaskClient) -> None:
+    page = client.get("/manual")
+    assert page.status_code == 200 and b"manual.md" in page.data
+    md = client.get("/static/manual.md")
+    assert md.status_code == 200 and md.data.startswith(b"# ExMigrate")
+
+
 def test_job_history(client: FlaskClient, clean_workbook: Path) -> None:
     assert client.get("/jobs").status_code == 200
     assert client.get("/api/jobs").get_json() == []

@@ -1,4 +1,4 @@
-"""HTML pages: upload → review → target → report, plus the job history."""
+"""HTML pages: upload → review → target → report, plus the job history and manual."""
 
 from __future__ import annotations
 
@@ -27,6 +27,12 @@ def upload_page() -> str:
 def history_page() -> str:
     """List of past jobs."""
     return render_template("history.html")
+
+
+@pages_bp.get("/manual")
+def manual_page() -> str:
+    """User manual rendered from ``static/manual.md``."""
+    return render_template("manual.html")
 
 
 @pages_bp.get("/jobs/<job_id>/review")
