@@ -17,6 +17,7 @@ from exmigrate.contracts.lineage import LEVELS, LineageLevel
 from exmigrate.erd import to_mermaid
 from exmigrate.lineage import to_flowchart
 from exmigrate.service import TARGETS, run_migration
+from exmigrate.translate import translate
 from exmigrate.web.jobs import JobNotFound, JobStatus, JobStore
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
@@ -160,6 +161,27 @@ def _lineage_level(value: str) -> LineageLevel | None:
     return None
 
 
+@api_bp.get("/jobs/<job_id>/translation")
+def get_translation(job_id: str) -> tuple[Response, int]:
+    """Return formula columns translated to SQL/pandas for the current (saved) IR.
+
+    ``?format=sqlite|postgres`` returns the view script, ``pandas`` the recompute
+    script, otherwise the full JSON translation.
+    """
+    job_store = store()
+    fmt = request.args.get("format", "json")
+    if fmt not in {"json", "sqlite", "postgres", "pandas"}:
+        return jsonify({"error": "format must be json, sqlite, postgres or pandas"}), 400
+    translation = translate(job_store.load_ir(job_id), job_store.load_formulas(job_id))
+    if fmt == "pandas":
+        return Response(translation.script, mimetype="text/x-python; charset=utf-8"), 200
+    if fmt != "json":
+        return Response(translation.views[fmt], mimetype="text/plain; charset=utf-8"), 200
+    payload = translation.model_dump(mode="json")
+    payload["counts"] = translation.counts()
+    return jsonify(payload), 200
+
+
 @api_bp.post("/jobs/<job_id>/migrate")
 def migrate(job_id: str) -> tuple[Response, int]:
     """Run the migration for the requested targets."""
@@ -183,7 +205,10 @@ def migrate(job_id: str) -> tuple[Response, int]:
     try:
         ir = job_store.load_ir(job_id)
         data = bind_data(ir, job_store.load_data(job_id))
-        status.reports = run_migration(ir, data, targets, configs, job_store.artifacts_dir(job_id))
+        translation = translate(ir, job_store.load_formulas(job_id))
+        status.reports = run_migration(
+            ir, data, targets, configs, job_store.artifacts_dir(job_id), translation
+        )
         status.state = "done" if all(r.ok for r in status.reports) else "failed"
     except Exception as exc:  # noqa: BLE001 - surfaced in status
         status.state = "failed"

@@ -1,4 +1,7 @@
-"""Command-line interface: ``exmigrate analyze|erd|formulas|lineage|migrate <files...>``."""
+"""Command-line interface.
+
+``exmigrate analyze|erd|formulas|lineage|translate|migrate <files...>``
+"""
 
 from __future__ import annotations
 
@@ -11,9 +14,11 @@ from pathlib import Path
 from exmigrate.analyzer import analyze_with_data
 from exmigrate.contracts.adapter import IssueSeverity
 from exmigrate.contracts.lineage import LEVELS
+from exmigrate.contracts.translation import Translation
 from exmigrate.erd import to_mermaid
 from exmigrate.lineage import to_flowchart
 from exmigrate.service import TARGETS, run_migration
+from exmigrate.translate import translate
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -38,15 +43,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", help="emit the Lineage IR as JSON instead of Mermaid"
     )
 
+    translate_p = sub.add_parser(
+        "translate", help="convert formula columns into SQL views and a pandas script"
+    )
+    translate_p.add_argument("files", nargs="+", type=Path)
+    _add_exclude(translate_p)
+    translate_p.add_argument(
+        "--format",
+        choices=("summary", "sqlite", "postgres", "pandas", "json"),
+        default="summary",
+        help="what to print: per-column summary, view SQL for a dialect, the script, or JSON",
+    )
+
     migrate_p = sub.add_parser("migrate", help="analyze and migrate workbooks")
     migrate_p.add_argument("files", nargs="+", type=Path)
-    migrate_p.add_argument(
-        "--exclude",
-        action="append",
-        default=[],
-        metavar="TABLE.COLUMN",
-        help="skip a column (repeatable), e.g. derived ones to recompute in the database",
-    )
+    _add_exclude(migrate_p)
     migrate_p.add_argument("--target", choices=TARGETS, action="append", required=True)
     migrate_p.add_argument("--out", type=Path, default=Path("out"), help="artifact directory")
     migrate_p.add_argument("--dsn", help="PostgreSQL DSN (default: $PG_DSN_DEFAULT)")
@@ -54,7 +65,22 @@ def build_parser() -> argparse.ArgumentParser:
         "--dump", action="store_true", help="write a .sql dump instead of connecting"
     )
     migrate_p.add_argument("--json", action="store_true", help="also print reports as JSON")
+    migrate_p.add_argument(
+        "--no-views",
+        action="store_true",
+        help="do not create recompute views / write recompute.py for formula columns",
+    )
     return parser
+
+
+def _add_exclude(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="TABLE.COLUMN",
+        help="skip a column (repeatable), e.g. derived ones to recompute in the database",
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -96,7 +122,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(to_flowchart(lineage), end="")
         return 0
 
-    if not result.ir.tables:
+    if not result.ir.tables and args.command == "migrate":
         print("no tables found", file=sys.stderr)
         return 1
 
@@ -108,10 +134,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"--exclude: unknown column '{spec}'", file=sys.stderr)
             return 2
 
+    translation = translate(result.ir, result.formulas)
+    if args.command == "translate":
+        _print_translation(translation, args.format)
+        return 0
+
     configs: dict[str, dict[str, object]] = {
         "postgres": {"mode": "dump" if args.dump else "live", "dsn": args.dsn or ""}
     }
-    reports = run_migration(result.ir, result.table_data(), args.target, configs, args.out)
+    reports = run_migration(
+        result.ir,
+        result.table_data(),
+        args.target,
+        configs,
+        args.out,
+        None if args.no_views else translation,
+    )
     ok = True
     for report in reports:
         print(f"== {report.target}")
@@ -127,6 +165,31 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.json:
         print(json.dumps([r.model_dump(mode="json") for r in reports], indent=2))
     return 0 if ok else 1
+
+
+def _print_translation(translation: Translation, fmt: str) -> None:
+    if fmt == "json":
+        print(translation.model_dump_json(indent=2))
+    elif fmt == "pandas":
+        print(translation.script, end="")
+    elif fmt in translation.views:
+        print(translation.views[fmt], end="")
+    else:
+        if not translation.columns:
+            print("no formula columns found")
+        for col in translation.columns:
+            flag = "excluded" if not col.include else "included"
+            print(f"== {col.table}.{col.column} [{col.status}, {flag}]  {col.formula}")
+            print(f"  sqlite:   {col.sql['sqlite']}")
+            print(f"  postgres: {col.sql['postgres']}")
+            print(f"  pandas:   {col.pandas}")
+            for note in col.notes:
+                print(f"  note: {note}")
+        counts = translation.counts()
+        print(
+            f"{len(translation.columns)} formula column(s): {counts['ok']} ok, "
+            f"{counts['partial']} partial, {counts['unsupported']} unsupported"
+        )
 
 
 if __name__ == "__main__":

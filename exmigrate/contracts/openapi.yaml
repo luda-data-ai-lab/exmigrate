@@ -147,6 +147,28 @@ paths:
               schema: { $ref: "#/components/schemas/LineageIR" }
         "400": { description: Invalid level }
         "404": { description: Unknown job }
+  /api/jobs/{id}/translation:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      summary: Formula columns translated to SQL views and a pandas script (saved IR)
+      parameters:
+        - name: format
+          in: query
+          required: false
+          schema: { type: string, enum: [json, sqlite, postgres, pandas], default: json }
+      responses:
+        "200":
+          description: Translation JSON, or the view SQL / pandas script as text
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Translation" }
+            text/plain:
+              schema: { type: string }
+            text/x-python:
+              schema: { type: string }
+        "400": { description: Invalid format }
+        "404": { description: Unknown job }
   /api/jobs/{id}/migrate:
     parameters:
       - $ref: "#/components/parameters/JobId"
@@ -221,6 +243,7 @@ components:
         sheet: { type: string }
         table: { type: string }
         column: { type: string }
+        column_index: { type: integer, nullable: true, description: 0-based position in the table }
         formula_cells: { type: integer }
         row_count: { type: integer }
         derived: { type: boolean }
@@ -301,6 +324,43 @@ components:
         mermaid:
           type: string
           description: Mermaid flowchart source for the same graph
+    TranslatedColumn:
+      type: object
+      required: [table, column, formula, status]
+      properties:
+        table: { type: string }
+        column: { type: string }
+        include: { type: boolean, description: false when the column is excluded from migration }
+        formula: { type: string, description: original Excel formula (first row) }
+        status: { type: string, enum: [ok, partial, unsupported] }
+        sql:
+          type: object
+          additionalProperties: { type: string }
+          description: SQL expression per dialect (sqlite, postgres)
+        pandas: { type: string }
+        notes:
+          type: array
+          items: { type: string }
+          description: TODO notes for unsupported parts
+        depends_on:
+          type: array
+          items: { type: string }
+          description: other derived columns (table.column) this one reads
+    Translation:
+      type: object
+      properties:
+        version: { type: integer }
+        columns:
+          type: array
+          items: { $ref: "#/components/schemas/TranslatedColumn" }
+        views:
+          type: object
+          additionalProperties: { type: string }
+          description: CREATE VIEW script per dialect
+        script: { type: string, description: standalone pandas recompute script }
+        counts:
+          type: object
+          additionalProperties: { type: integer }
     Table:
       type: object
       required: [name, source_file, source_sheet, columns]

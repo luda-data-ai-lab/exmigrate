@@ -16,7 +16,7 @@ import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
-from exmigrate.analyzer.formulas import SheetFormulas, scan_formulas
+from exmigrate.analyzer.formulas import SheetFormulas, scan_workbook
 from exmigrate.analyzer.keys import (
     LookupEvidence,
     infer_foreign_keys,
@@ -123,8 +123,9 @@ def _apply_formulas(
         header_rows = {
             t.source_sheet: t.header_row for t in ir.tables if t.source_file == path.name
         }
-        facts = scan_formulas(path, header_rows)
+        facts, books = scan_workbook(path, header_rows)
         all_facts[path.name] = facts
+        inventory.books[path.name] = books
         for sheet, sheet_facts in facts.items():
             table = table_by_sheet(ir, path.name, sheet)
             if table is None:
@@ -225,6 +226,7 @@ def _inventory(table: TableIR, facts: SheetFormulas) -> list[FormulaColumn]:
                 sheet=table.source_sheet,
                 table=table.name,
                 column=table.columns[col_idx].name,
+                column_index=col_idx,
                 formula_cells=count,
                 row_count=table.row_count,
                 derived=col_idx in derived,
