@@ -6,11 +6,14 @@ from pathlib import Path
 from flask.testing import FlaskClient
 
 
-def _upload(client: FlaskClient, workbook: Path) -> str:
+def _upload(client: FlaskClient, workbook: Path, created_by: str | None = None) -> str:
     with workbook.open("rb") as fh:
+        data: dict[str, object] = {"files": (fh, workbook.name)}
+        if created_by is not None:
+            data["created_by"] = created_by
         res = client.post(
             "/api/upload",
-            data={"files": (fh, workbook.name)},
+            data=data,
             content_type="multipart/form-data",
         )
     assert res.status_code == 201, res.get_json()
@@ -77,10 +80,11 @@ def test_job_history(client: FlaskClient, clean_workbook: Path) -> None:
     assert client.get("/api/jobs").get_json() == []
 
     first = _upload(client, clean_workbook)
-    second = _upload(client, clean_workbook)
+    second = _upload(client, clean_workbook, created_by="  James  ")
     jobs = client.get("/api/jobs").get_json()
     assert [j["job_id"] for j in jobs] == [second, first]
     assert jobs[0]["state"] == "analyzed" and jobs[0]["created_at"]
+    assert jobs[0]["created_by"] == "James" and jobs[1]["created_by"] is None
     assert jobs[0]["files"] == ["clean.xlsx"]
     assert jobs[0]["tables"] == ["customers", "orders", "order_items"]
     assert jobs[0]["targets"] == []

@@ -2,6 +2,10 @@
 {% block content %}
 <h1 class="h3 mb-3">1. Upload workbooks</h1>
 <p class="text-muted">Drop one or more <code>.xlsx</code> files. Each sheet becomes a table.</p>
+<div class="mb-3" style="max-width: 24rem">
+  <label for="created-by" class="form-label mb-1">Your name <span class="text-muted small">(shown in History)</span></label>
+  <input id="created-by" class="form-control" maxlength="80" placeholder="e.g. James" autocomplete="name">
+</div>
 <div id="dropzone" class="dropzone border rounded p-5 text-center">
   <p class="mb-2">Drag &amp; drop files here</p>
   <p class="text-muted small mb-3">or</p>
@@ -22,6 +26,9 @@
   const btn = document.getElementById("upload-btn");
   const err = document.getElementById("error");
   const count = document.getElementById("file-count");
+  const who = document.getElementById("created-by");
+  who.value = localStorage.getItem("exmigrate.created_by") || "";
+  who.addEventListener("input", () => localStorage.setItem("exmigrate.created_by", who.value.trim()));
   let files = [];
 
   const render = () => {
@@ -63,6 +70,7 @@
     err.classList.add("d-none");
     const form = new FormData();
     files.forEach(f => form.append("files", f));
+    form.append("created_by", who.value.trim());
     try {
       const res = await fetch("/api/upload", { method: "POST", body: form });
       const body = await res.json();

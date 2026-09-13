@@ -50,6 +50,8 @@ Environment variables
 Top menu: **Upload** · **History** · **Manual**
 
 ### 2.1 Upload
+Optionally type your name in **Your name**; it is stored on the job as `created_by` so History shows who uploaded what (no login; the browser remembers it for next time).
+
 Drag and drop `.xlsx` files or pick them with the **Choose files…** button (you can add more than once; the count is shown as "N files selected"). Workbooks that reference each other must be uploaded **together in one job** so cross-file FKs and data flow are connected. Non-ASCII (e.g. Korean) file names are preserved.
 
 ### 2.2 Review
@@ -104,7 +106,7 @@ Rows loaded per table, warnings/errors (issues), and downloadable artifacts.
 | `recompute.py` | The same logic as a pandas script |
 
 ### 2.5 History
-List of past jobs (time · files · tables · status · targets). Reopen Review/Report, delete.
+List of past jobs (time · user · files · tables · status · targets). When at least one job has a user name, a dropdown filters by user. Reopen Review/Report, delete.
 
 ---
 
@@ -179,7 +181,7 @@ Base path `/api`. Full schema: `exmigrate/contracts/openapi.yaml`.
 
 | Method | Path | Description |
 | --- | --- | --- |
-| POST | `/upload` | multipart `files` upload → `201 {job_id}` |
+| POST | `/upload` | multipart `files` (+ optional `created_by`) → `201 {job_id}` |
 | GET | `/jobs` | list jobs |
 | DELETE | `/jobs/{id}` | delete a job |
 | GET / PUT | `/jobs/{id}/schema` | read / save the Schema IR |
