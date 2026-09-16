@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import date
 from pathlib import Path
 
 from flask import Flask
@@ -33,6 +34,7 @@ def create_app(jobs_root: str | Path | None = None) -> Flask:
             "contact_email": os.environ.get("EXMIGRATE_CONTACT_EMAIL", DEFAULT_CONTACT_EMAIL),
             "tagline": os.environ.get("EXMIGRATE_TAGLINE", DEFAULT_TAGLINE),
             "repo_url": os.environ.get("EXMIGRATE_REPO_URL", ""),
+            "year": str(date.today().year),
         }
 
     return app
