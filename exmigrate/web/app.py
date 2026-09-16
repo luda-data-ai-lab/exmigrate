@@ -7,11 +7,14 @@ from pathlib import Path
 
 from flask import Flask
 
+from exmigrate import __version__
 from exmigrate.web.api import api_bp
 from exmigrate.web.jobs import JobStore
 from exmigrate.web.pages import pages_bp
 
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+DEFAULT_CONTACT_EMAIL = "contact@ludaresearch.org"
+DEFAULT_TAGLINE = "Lighting universe through Data and AI"
 
 
 def create_app(jobs_root: str | Path | None = None) -> Flask:
@@ -22,6 +25,16 @@ def create_app(jobs_root: str | Path | None = None) -> Flask:
     app.extensions["job_store"] = JobStore(root)
     app.register_blueprint(api_bp)
     app.register_blueprint(pages_bp)
+
+    @app.context_processor
+    def _footer_context() -> dict[str, str]:
+        return {
+            "app_version": __version__,
+            "contact_email": os.environ.get("EXMIGRATE_CONTACT_EMAIL", DEFAULT_CONTACT_EMAIL),
+            "tagline": os.environ.get("EXMIGRATE_TAGLINE", DEFAULT_TAGLINE),
+            "repo_url": os.environ.get("EXMIGRATE_REPO_URL", ""),
+        }
+
     return app
 
 

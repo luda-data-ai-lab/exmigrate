@@ -75,6 +75,14 @@ def test_manual_page(client: FlaskClient) -> None:
         assert md.status_code == 200 and md.data.startswith(b"# ExMigrate")
 
 
+def test_footer(client: FlaskClient) -> None:
+    page = client.get("/").data
+    assert b"Created by <strong>LUDA</strong>" in page
+    assert b"Lighting universe through Data and AI" in page
+    assert b"mailto:contact@ludaresearch.org" in page
+    assert client.get("/static/luda-logo.png").status_code == 200
+
+
 def test_job_history(client: FlaskClient, clean_workbook: Path) -> None:
     assert client.get("/jobs").status_code == 200
     assert client.get("/api/jobs").get_json() == []
