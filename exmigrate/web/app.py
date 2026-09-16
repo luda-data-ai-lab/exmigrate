@@ -14,7 +14,7 @@ from exmigrate.web.pages import pages_bp
 
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 DEFAULT_CONTACT_EMAIL = "contact@ludaresearch.org"
-DEFAULT_TAGLINE = "Lighting universe through Data and AI"
+DEFAULT_TAGLINE = "Lighting the Universe through Data and AI"
 
 
 def create_app(jobs_root: str | Path | None = None) -> Flask:
