@@ -49,7 +49,7 @@ The REST API is described in `exmigrate/contracts/openapi.yaml`. The user
 manual (`exmigrate/web/static/manual.ko.md`, `manual.en.md`) is rendered in-app
 under **Manual** (`/manual?lang=ko|en`). The footer's contact address,
 tagline and optional GitHub link come from `EXMIGRATE_CONTACT_EMAIL`,
-`EXMIGRATE_TAGLINE` and `EXMIGRATE_REPO_URL`.
+`EXMIGRATE_TAGLINE` (use `|` to break lines; the last line is bold) and `EXMIGRATE_REPO_URL`.
 
 ## Key inference
 

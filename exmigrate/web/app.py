@@ -15,7 +15,7 @@ from exmigrate.web.pages import pages_bp
 
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 DEFAULT_CONTACT_EMAIL = "contact@ludaresearch.org"
-DEFAULT_TAGLINE = "Lighting the Universe through Data and AI"
+DEFAULT_TAGLINE = "Lighting the Universe through|Data and AI"
 
 
 def create_app(jobs_root: str | Path | None = None) -> Flask:
@@ -28,11 +28,11 @@ def create_app(jobs_root: str | Path | None = None) -> Flask:
     app.register_blueprint(pages_bp)
 
     @app.context_processor
-    def _footer_context() -> dict[str, str]:
+    def _footer_context() -> dict[str, object]:
         return {
             "app_version": __version__,
             "contact_email": os.environ.get("EXMIGRATE_CONTACT_EMAIL", DEFAULT_CONTACT_EMAIL),
-            "tagline": os.environ.get("EXMIGRATE_TAGLINE", DEFAULT_TAGLINE),
+            "tagline_lines": os.environ.get("EXMIGRATE_TAGLINE", DEFAULT_TAGLINE).split("|"),
             "repo_url": os.environ.get("EXMIGRATE_REPO_URL", ""),
             "year": str(date.today().year),
         }

@@ -79,7 +79,8 @@ def test_footer(client: FlaskClient) -> None:
     page = client.get("/").data
     assert b"built and provided by <strong>LUDA</strong>" in page
     assert b"LUDA. All rights reserved." in page
-    assert b"Lighting the Universe through Data and AI" in page
+    assert b"Lighting the Universe through" in page
+    assert b'<div class="fw-bold">Data and AI</div>' in page
     assert b"mailto:contact@ludaresearch.org" in page
     assert client.get("/static/luda-logo.png").status_code == 200
 
