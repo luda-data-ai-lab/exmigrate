@@ -7,7 +7,7 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="{{ url_for('static', filename='app.css') }}" rel="stylesheet">
 </head>
-<body>
+<body class="d-flex flex-column min-vh-100">
 <nav class="navbar navbar-dark bg-dark mb-4">
   <div class="container">
     <a class="navbar-brand" href="{{ url_for('pages.upload_page') }}">ExMigrate</a>
@@ -19,9 +19,25 @@
     </div>
   </div>
 </nav>
-<main class="container pb-5">
+<main class="container pb-5 flex-grow-1">
   {% block content %}{% endblock %}
 </main>
+<footer class="site-footer border-top py-3 mt-auto">
+  <div class="container d-flex flex-wrap justify-content-between align-items-center gap-3 small text-muted">
+    <div class="lh-lg">
+      <div>This service is built and provided by <strong>LUDA</strong>.</div>
+      <div>✉ Contact: <a class="link-secondary" href="mailto:{{ contact_email }}">{{ contact_email }}</a>
+        {% if repo_url %} · <a class="link-secondary" href="{{ repo_url }}" target="_blank" rel="noopener">GitHub</a>{% endif %}</div>
+      <div class="text-body-tertiary">© {{ year }} LUDA. All rights reserved. · ExMigrate v{{ app_version }}</div>
+    </div>
+    <div class="text-center">
+      <img src="{{ url_for('static', filename='luda-logo.png') }}" alt="LUDA Research Group" width="48" height="48" class="rounded-3 d-block mx-auto">
+      <div class="fst-italic small mt-1 lh-sm">
+        {% for line in tagline_lines %}<div{% if loop.last and not loop.first %} class="fw-bold"{% endif %}>{{ line }}</div>{% endfor %}
+      </div>
+    </div>
+  </div>
+</footer>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 {% block scripts %}{% endblock %}
