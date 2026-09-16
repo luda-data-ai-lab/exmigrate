@@ -77,7 +77,7 @@ def test_manual_page(client: FlaskClient) -> None:
 
 def test_footer(client: FlaskClient) -> None:
     page = client.get("/").data
-    assert "LUDA</strong>에서 제작·제공합니다".encode() in page
+    assert b"built and provided by <strong>LUDA</strong>" in page
     assert b"LUDA. All rights reserved." in page
     assert b"Lighting the Universe through Data and AI" in page
     assert b"mailto:contact@ludaresearch.org" in page
