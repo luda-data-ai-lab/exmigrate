@@ -106,3 +106,7 @@ PG_DSN_DEFAULT=postgresql://postgres:postgres@localhost:55432/exmigrate pytest -
 ```
 
 Fixtures are generator scripts in `fixtures/`; no `.xlsx` binaries are committed.
+
+## License
+
+MIT — see [LICENSE](LICENSE). © 2026 LUDA Research Group.
