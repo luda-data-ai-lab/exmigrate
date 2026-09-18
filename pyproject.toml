@@ -1,11 +1,15 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "exmigrate"
 version = "0.1.0"
 description = "Migrate Excel workbooks into relational databases."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "LUDA Research Group", email = "contact@ludaresearch.org" }]
 requires-python = ">=3.10"
 dependencies = [
     "flask>=3.0",
